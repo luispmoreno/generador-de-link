@@ -92,7 +92,7 @@ def get_user(username: str):
     return res.iloc[0].to_dict() if not res.empty else None
 
 # =========================
-# CSS Personalizado (Foco en Mobile y Login)
+# CSS Personalizado
 # =========================
 def apply_custom_styles():
     st.markdown(f"""
@@ -109,7 +109,7 @@ def apply_custom_styles():
 
         /* MEJORA MOBILE: Scroll táctil en selectores */
         div[data-baseweb="popover"], div[data-baseweb="menu"] {{
-            max-height: 300px !important;
+            max-height: 350px !important;
             overflow-y: auto !important;
             -webkit-overflow-scrolling: touch !important;
         }}
@@ -126,69 +126,3 @@ def apply_custom_styles():
             font-weight: bold;
             width: 100%;
             border-radius: 8px;
-            height: 3em;
-        }}
-        
-        /* Contenedor Login Central */
-        .login-box {{
-            background: white;
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            max-width: 400px;
-            margin: auto;
-            text-align: center;
-        }}
-    </style>
-    """, unsafe_allow_html=True)
-
-# =========================
-# Lógica de la App
-# =========================
-st.set_page_config(page_title=APP_TITLE, layout="wide")
-apply_custom_styles()
-init_db()
-
-if "auth" not in st.session_state:
-    st.session_state.auth = {"is_logged": False, "username": None, "role": None}
-
-# --- PANTALLA DE LOGIN ---
-if not st.session_state.auth["is_logged"]:
-    # Espaciado para centrar
-    _, center, _ = st.columns([1, 2, 1])
-    with center:
-        st.markdown(f"<div style='text-align:center; margin-bottom:20px;'><img src='{UNICOMER_LOGO}' width='200'></div>", unsafe_allow_html=True)
-        st.markdown("<h2 style='text-align:center;'>Inicia Sesión</h2>", unsafe_allow_html=True)
-        
-        with st.container():
-            u_input = st.text_input("Usuario", key="login_user")
-            p_input = st.text_input("Contraseña", type="password", key="login_pwd")
-            
-            if st.button("ENTRAR"):
-                user_data = get_user(u_input)
-                if user_data and verify_password(p_input, user_data["salt"], user_data["pwd_hash"]):
-                    st.session_state.auth = {"is_logged": True, "username": user_data["username"], "role": user_data["role"]}
-                    st.rerun()
-                else:
-                    st.error("Credenciales incorrectas")
-    st.stop()
-
-# --- APP PRINCIPAL (Solo si está logueado) ---
-with st.sidebar:
-    st.markdown(f"<div style='filter: brightness(0) invert(1); text-align:center;'><img src='{UNICOMER_LOGO}' width='120'></div>", unsafe_allow_html=True)
-    st.divider()
-    st.write(f"Sesión: **{st.session_state.auth['username']}**")
-    if st.button("Cerrar Sesión"):
-        st.session_state.auth = {"is_logged": False, "username": None, "role": None}
-        st.rerun()
-
-# Layout Principal
-_, col_main, _ = st.columns([0.1, 0.8, 0.1])
-
-with col_main:
-    st.title(f"🔗 {APP_TITLE}")
-    
-    tabs = st.tabs(["✅ Generar Link", "🕒 Historial", "⚙️ Admin"])
-
-    with tabs[0]:
-        st.info("Ingresa la URL base y selecciona los parámetros para generar el
