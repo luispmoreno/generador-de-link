@@ -22,16 +22,13 @@ UNICOMER_YELLOW = "#fdbb2d"
 FIGMA_URL = "https://www.figma.com/design/ihSTaMfAmyN99BN5Z6sNps/Home-ULA?node-id=0-1&t=0q58oIwyTto6wv3R-1"
 
 # =========================
-# Lógica de Datos (Se mantiene intacta)
+# Lógica de Datos
 # =========================
-# [Aquí van todas tus definiciones de HOME_TYPES y ORDER_MAX_BY_CODE que ya tienes]
-# Para brevedad, el motor de base de datos sigue igual que tu original...
-
 HOME_TYPES = [("BannerRotativo", "rtv"), ("MejoresOfertas", "topd"), ("CategoriasDestacadas", "dtd"), ("BloqueFomo", "bcr"), ("MoreDeals", "dls"), ("Carrusel1Ofertas", "bts"), ("BannerMultiuso1", "bmuno"), ("Carrusel2Ofertas", "npd"), ("BannerMultiuso2", "bmdos"), ("Carrusel3Ofertas", "cdp"), ("Carousel4Ofertas", "cci"), ("CarouselconImagen", "imb"), ("MarcasDestacadas", "mdt"), ("BloqueDeBeneficios", "icb"), ("CintilloBajoRotativo", "cbr"), ("BannerMultiuso3", "bmtres"), ("MoreDealsRotativo", "mdr"), ("CarruselConPortada", "ccp"), ("MoreDealsCarrusel", "mdc"), ("BannerMoreDealsCarrusel", "bmdc"), ("BannerDeCategoria", "bdct"), ("DobleBannerMultiuso", "dbm"), ("BannerLateral", "bnl"), ("MoreDealsde4", "mddc"), ("MoreDealsVersion2", "mdvd"), ("BannerMulticarruselCP", "bpm"), ("CategoriasDestacadasDos", "dtddos"), ("CategoriasDestacadasTres", "cdtres"), ("ProductTop", "pdtop"), ("TopCategories", "tcat"), ("FomoAdviento", "fad"), ("PopUp", "popup"), ("BannerMultiusoCP", "bmcp"), ("PopUp2", "popdos"), ("BotonLateral", "btl")]
 ORDER_MAX_BY_CODE = {"rtv": 6, "topd": 1, "dtd": 1, "bcr": 4, "dls": 6, "bts": 1, "bmuno": 1, "npd": 1, "bmdos": 1, "cdp": 1, "cci": 1, "imb": 1, "mdt": 1, "icb": 1, "cbr": 1, "bmtres": 1, "mdr": 6, "ccp": 1, "mdc": 6, "bmdc": 1, "bdct": 10, "dbm": 2, "bnl": 1, "mddc": 4, "mdvd": 9, "bpm": 11, "dtddos": 3, "cdtres": 14, "pdtop": 6, "tcat": 6, "fad": 6, "popup": 1, "bmcp": 3, "popdos": 1, "btl": 1}
 DEFAULT_ORDER_RANGE = list(range(1, 21))
 
-# Funciones de Soporte (Mismo código original)
+# Funciones de Soporte
 def _hash_password(password: str, salt_hex: str) -> str:
     data = (salt_hex + password).encode("utf-8")
     return hashlib.sha256(data).hexdigest()
@@ -151,20 +148,38 @@ def make_hid(prefix: str, type_code: str, order_value: str) -> str:
     return "_".join([prefix, type_code, str(order_value).strip()])
 
 # =========================
-# CSS Styles (OPTIMIZADO RESPONSIVE)
+# CSS Styles (CORREGIDO COLOR DE TEXTO)
 # =========================
 def apply_custom_styles():
     st.markdown(f"""
     <style>
-        /* Sidebar Responsive */
-        [data-testid="stSidebar"] {{ background-color: {UNICOMER_BLUE}; color: white; }}
-        [data-testid="stSidebar"] * {{ color: white !important; }}
+        /* Sidebar General */
+        [data-testid="stSidebar"] {{ 
+            background-color: {UNICOMER_BLUE}; 
+        }}
+        
+        /* Asegurar visibilidad de etiquetas y textos en Sidebar */
+        [data-testid="stSidebar"] label, 
+        [data-testid="stSidebar"] p, 
+        [data-testid="stSidebar"] h3 {{ 
+            color: white !important; 
+        }}
+
+        /* CORRECCIÓN: Forzar color de texto oscuro en todos los inputs */
+        .stTextInput input, .stSelectbox select, textarea {{
+            color: #31333F !important; /* Gris oscuro/Negro */
+            background-color: white !important; /* Fondo blanco */
+            border-radius: 8px !important;
+        }}
+
+        /* Botones en Sidebar */
         [data-testid="stSidebar"] .stButton button {{
             background-color: {UNICOMER_YELLOW} !important;
             color: {UNICOMER_BLUE} !important;
+            font-weight: bold;
         }}
         
-        /* Ajuste de márgenes para desktop vs mobile */
+        /* Ajuste de márgenes */
         .block-container {{ padding-top: 2rem; padding-bottom: 2rem; }}
         
         /* Fuentes */
@@ -172,12 +187,7 @@ def apply_custom_styles():
         html, body, [class*="css"] {{ font-family: 'Open Sans', sans-serif; }}
         h1, h2, h3 {{ color: {UNICOMER_BLUE}; font-weight: 700; }}
 
-        /* Estilo para los inputs */
-        .stTextInput input, .stSelectbox select {{
-            border-radius: 8px !important;
-        }}
-
-        /* Botón Primario Unicomer */
+        /* Botón Primario Unicomer (Main Content) */
         div.stButton > button[kind="primary"] {{
             background-color: {UNICOMER_YELLOW} !important;
             color: {UNICOMER_BLUE} !important;
@@ -228,7 +238,7 @@ if not st.session_state.auth["is_logged"]:
     st.info("👈 Por favor, inicia sesión en el panel lateral para continuar.")
     st.stop()
 
-# Layout Responsivo: 3 columnas en desktop, el centro es la app
+# Layout Responsivo
 col_left, col_main, col_right = st.columns([1, 2, 1])
 
 with col_main:
@@ -251,8 +261,8 @@ with col_main:
         c1, c2 = st.columns(2)
         with c1:
             country = st.selectbox("País", ["SV", "GT", "CR", "HN", "NI", "PA", "DO", "JM", "TT", "Otro"])
-            categories = df_query("SELECT id, name, prefix FROM categories")
-            cat_options = [f"{r.name} ({r.prefix})" for r in categories.itertuples()]
+            categories_df = df_query("SELECT id, name, prefix FROM categories")
+            cat_options = [f"{r.name} ({r.prefix})" for r in categories_df.itertuples()]
             cat_sel = st.selectbox("Categoría", cat_options)
         
         with c2:
@@ -260,7 +270,6 @@ with col_main:
             type_options = [f"{r.name} ({r.code})" for r in types_df.itertuples()]
             type_sel = st.selectbox("Tipo", type_options)
             
-            # Obtener ID del tipo seleccionado para filtrar órdenes
             t_code = type_sel.split("(")[1].replace(")", "")
             t_id = types_df[types_df['code'] == t_code]['id'].values[0]
             orders = df_query("SELECT order_no FROM type_orders WHERE type_id=? ORDER BY order_no", (int(t_id),))
@@ -278,15 +287,13 @@ with col_main:
                 st.success("¡Link generado!")
                 st.code(final_url)
                 
-                # Guardar en DB
                 exec_sql("""INSERT INTO history (created_at, base_url, final_url, country, type_code, order_value, hid_value) 
                             VALUES (?,?,?,?,?,?,?)""", 
                          (datetime.now().isoformat(), base_url, final_url, country, t_code, str(order_val), hid))
                 
-                # Botón Copiar Responsivo
                 components.html(f"""
                     <button onclick="navigator.clipboard.writeText('{final_url}'); alert('Copiado');" 
-                    style="width:100%; background:{UNICOMER_YELLOW}; border:none; padding:10px; border-radius:5px; font-weight:bold; cursor:pointer;">
+                    style="width:100%; background:{UNICOMER_YELLOW}; border:none; padding:10px; border-radius:5px; font-weight:bold; cursor:pointer; color:{UNICOMER_BLUE};">
                     📋 COPIAR AL PORTAPAPELES
                     </button>
                 """, height=50)
@@ -302,8 +309,3 @@ with col_main:
             st.subheader("Gestión de Usuarios")
             u_data = df_query("SELECT id, username, role FROM users")
             st.table(u_data)
-            # Aquí podrías añadir los expanders de crear/eliminar que tenías originalmente
-
-
-
-
