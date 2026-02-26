@@ -1,60 +1,75 @@
 import streamlit as st
+import os
 
-# 1. Configuración de página para que use todo el ancho disponible
-st.set_page_config(page_title="Link Builder", layout="wide")
+# 1. Configuración de página
+st.set_page_config(page_title="Generador de IDs", layout="wide")
 
-# 2. CSS para mejorar la estética y el centrado
+# 2. CSS personalizado para estilo Unicomer y Responsive
 st.markdown("""
     <style>
-    /* Ajustar el padding superior */
-    .block-container {
-        padding-top: 2rem;
-    }
-    /* Estilo para el botón 'Entrar' (Amarillo Unicomer) */
+    .block-container { padding-top: 2rem; }
+    /* Botón amarillo Unicomer */
     div.stButton > button:first-child {
         background-color: #FFC107;
         color: black;
         border: none;
-        padding: 0.5rem 2rem;
+        padding: 0.6rem 2.5rem;
         font-weight: bold;
-        border-radius: 5px;
+        border-radius: 8px;
+        width: 100%;
     }
-    /* Asegurar que la imagen no se desborde en móvil */
-    img {
-        max-width: 100%;
+    /* Estilo para el título */
+    .main-title {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #1E1E1E;
+        margin-bottom: 0;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# 3. Estructura de columnas para centrar el contenido en Desktop
-# El ratio [1, 1.2, 1] asegura que el centro no sea demasiado ancho en pantallas grandes
-col1, col2, col3 = st.columns([1, 1.2, 1])
+# 3. Lógica de Sesión (Para que al dar 'Entrar' cambie la pantalla)
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
 
-with col2:
-    # Encabezado con Logo de Unicomer desde URL para evitar errores de archivo
-    logo_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Grupo_Unicomer_Logo.png/640px-Grupo_Unicomer_Logo.png"
-    
-    # Usamos columnas internas para alinear logo y título horizontalmente
-    inner_col1, inner_col2 = st.columns([1, 4])
-    with inner_col1:
-        st.image(logo_url, width=80)
-    with inner_col2:
-        st.title("Link Builder")
-    
-    st.write("---")
-    
-    # Sección de Acceso
-    st.subheader("🔐 Acceso")
-    
-    with st.container():
-        usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
-        contrasena = st.text_input("Contraseña", type="password", placeholder="••••••••")
+# --- PANTALLA DE LOGIN ---
+if not st.session_state['logged_in']:
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+
+    with col2:
+        # Logo de Unicomer (Enlace directo y estable)
+        st.image("https://www.unicomer.com/wp-content/uploads/2020/02/Logo-Unicomer.png", width=180)
         
-        # Espacio estético
-        st.write("")
+        st.markdown('<p class="main-title">Generador de IDs</p>', unsafe_allow_html=True)
+        st.write("---")
+        
+        st.subheader("🔐 Acceso al Sistema")
+        
+        usuario = st.text_input("Usuario", placeholder="ej: luis_pena")
+        contrasena = st.text_input("Contraseña", type="password")
+        
+        st.write("") # Espaciado
         
         if st.button("Entrar"):
-            if usuario and contrasena:
-                st.success("Validando credenciales...")
+            if usuario == "admin" and contrasena == "admin": # Cambia esto por tu lógica real
+                st.session_state['logged_in'] = True
+                st.rerun()
+            elif usuario and contrasena:
+                # Simulación de validación exitosa para que no se quede trabado
+                st.success("¡Bienvenido!")
+                st.session_state['logged_in'] = True
+                st.rerun()
             else:
-                st.error("Por favor, completa todos los campos.")
+                st.error("Por favor, ingresa credenciales válidas")
+
+# --- PANTALLA PRINCIPAL (Después de loguearse) ---
+else:
+    col1, col2, col3 = st.columns([0.5, 3, 0.5])
+    with col2:
+        st.image("https://www.unicomer.com/wp-content/uploads/2020/02/Logo-Unicomer.png", width=100)
+        st.title("Generador de IDs")
+        st.info("Sesión iniciada correctamente. Aquí puedes colocar tu lógica de generación de IDs.")
+        
+        if st.button("Cerrar Sesión"):
+            st.session_state['logged_in'] = False
+            st.rerun()
