@@ -3,11 +3,11 @@ import sqlite3
 import pandas as pd
 import hashlib
 import secrets
+import time
 from datetime import datetime
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from pathlib import Path
 import streamlit.components.v1 as components
-import io
 
 # =========================
 # Configuración y Estilos
@@ -16,6 +16,7 @@ APP_TITLE = "Generador de IDs - Unicomer"
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = str(BASE_DIR / "links.db")
 
+# Logo con filtro blanco para fondo oscuro
 UNICOMER_LOGO = "https://grupounicomer.com/wp-content/uploads/2022/12/logo-sol-gris.png"
 UNICOMER_BLUE = "#002d5a"
 UNICOMER_YELLOW = "#fdbb2d"
@@ -23,10 +24,13 @@ FIGMA_HOME_URL = "https://www.figma.com/design/ihSTaMfAmyN99BN5Z6sNps/Home-ULA?n
 
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 
+# Estilos personalizados incluyendo el logo en blanco (brightness/invert)
 st.markdown(f"""
 <style>
     [data-testid="stSidebar"] {{ background-color: {UNICOMER_BLUE} !important; }}
     [data-testid="stSidebar"] * {{ color: white !important; }}
+    [data-testid="stSidebar"] img {{ filter: brightness(0) invert(1); }} /* Logo blanco */
+    
     div.stButton > button {{
         background-color: {UNICOMER_YELLOW} !important;
         color: {UNICOMER_BLUE} !important;
@@ -40,7 +44,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =========================
-# Funciones de Seguridad
+# Lógica de Datos
 # =========================
 def _hash_password(password: str, salt_hex: str) -> str:
     return hashlib.sha256((salt_hex + password).encode("utf-8")).hexdigest()
@@ -65,6 +69,12 @@ def df_query(sql, params=()):
     with get_conn() as conn:
         return pd.read_sql_query(sql, conn, params=params)
 
+def show_toast(message):
+    placeholder = st.empty()
+    placeholder.success(message)
+    time.sleep(2)
+    placeholder.empty()
+
 def init_db():
     with get_conn() as conn:
         cur = conn.cursor()
@@ -74,12 +84,7 @@ def init_db():
         cur.execute("CREATE TABLE IF NOT EXISTS type_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, type_id INTEGER, order_no INTEGER);")
         cur.execute("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, base_url TEXT, final_url TEXT, country TEXT, type_code TEXT, order_value TEXT, hid_value TEXT);")
         
-        # Inserción segura de usuarios iniciales
-        users = [
-            ("admin", "admin", "admin123"),
-            ("ula_corp_design", "admin", "Dcorp$26"),
-            ("luis_pena", "user", "Lpena$2026")
-        ]
+        users = [("admin", "admin", "admin123"), ("ula_corp_design", "admin", "Dcorp$26"), ("luis_pena", "user", "Lpena$2026")]
         for u, r, p in users:
             cur.execute("SELECT 1 FROM users WHERE username=?", (u,))
             if not cur.fetchone():
@@ -89,7 +94,7 @@ def init_db():
 init_db()
 
 # =========================
-# Manejo de Sesión
+# Auth y Sesión
 # =========================
 if "auth" not in st.session_state:
     st.session_state.auth = {"is_logged": False, "username": None, "role": None}
@@ -105,13 +110,13 @@ if not st.session_state.auth["is_logged"]:
             if not res.empty and verify_password(p_in, res.iloc[0]['salt'], res.iloc[0]['pwd_hash']):
                 st.session_state.auth = {"is_logged": True, "username": res.iloc[0]['username'], "role": res.iloc[0]['role']}
                 st.rerun()
-            else: st.error("Credenciales incorrectas")
+            else: st.error("Acceso denegado")
     st.stop()
 
-# --- BARRA LATERAL ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.image(UNICOMER_LOGO, width=150)
-    st.write(f"Sesión: **{st.session_state.auth['username']}**")
+    st.write(f"👤 **{st.session_state.auth['username']}**")
     if st.button("Cerrar Sesión"):
         st.session_state.auth = {"is_logged": False}
         st.rerun()
@@ -125,26 +130,24 @@ with tabs[0]:
     col_l, col_r = st.columns([2, 1])
     with col_l:
         st.title("Generador de Links")
-        url_base = st.text_input("URL base", placeholder="https://ejemplo.com")
+        url_base = st.text_input("URL base", placeholder="https://unicomer.com...")
     with col_r:
-        st.markdown(f'<div class="figma-box"><p>Guía de Bloques</p><a href="{FIGMA_HOME_URL}" target="_blank"><button style="background:#A259FF; color:white; border:none; padding:8px; border-radius:5px; cursor:pointer; width:100%;">ABRIR FIGMA</button></a></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="figma-box"><p>Mapa Home</p><a href="{FIGMA_HOME_URL}" target="_blank"><button style="background:#A259FF; color:white; border:none; padding:8px; border-radius:5px; cursor:pointer; width:100%;">FIGMA BLOQUES</button></a></div>', unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
     pais = c1.selectbox("País", ["SV", "GT", "CR", "HN", "NI", "PA", "DO", "JM", "TT"])
-    
     cats_df = df_query("SELECT name, prefix FROM categories")
     cat_list = [f"{r.name} ({r.prefix})" for r in cats_df.itertuples()] if not cats_df.empty else ["N/A"]
     cat_sel = c2.selectbox("Categoría", cat_list)
-    
     types_df = df_query("SELECT id, name, code FROM types")
     type_list = [f"{r.name} ({r.code})" for r in types_df.itertuples()] if not types_df.empty else ["N/A"]
-    type_sel = c3.selectbox("Tipo de Componente", type_list)
+    type_sel = c3.selectbox("Tipo", type_list)
     
     if "(" in type_sel:
         t_code = type_sel.split("(")[1].replace(")", "")
         t_id = int(types_df[types_df['code'] == t_code]['id'].values[0])
         ord_df = df_query("SELECT order_no FROM type_orders WHERE type_id=? ORDER BY order_no", (t_id,))
-        pos = st.selectbox("Posición (Orden)", ord_df['order_no'].tolist() if not ord_df.empty else [1])
+        pos = st.selectbox("Posición", ord_df['order_no'].tolist() if not ord_df.empty else [1])
         
         if st.button("GENERAR ID Y LINK"):
             pref = cat_sel.split("(")[1].replace(")", "")
@@ -154,100 +157,100 @@ with tabs[0]:
             final_url = urlunparse(p_url._replace(query=urlencode(qs)))
             exec_sql("INSERT INTO history (created_at, base_url, final_url, country, type_code, order_value, hid_value) VALUES (?,?,?,?,?,?,?)",
                     (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), url_base, final_url, pais, t_code, str(pos), hid))
-            st.success(f"ID: {hid}")
+            
+            st.info(f"ID Generado: {hid}")
             st.code(final_url)
+            # Botón copiar restaurado
+            components.html(f"""
+                <button onclick="navigator.clipboard.writeText('{final_url}'); this.innerText='¡Copiado!'; setTimeout(()=>{{this.innerText='📋 Copiar Link'}}, 2000)" 
+                style="width:100%; background:{UNICOMER_YELLOW}; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer; color:{UNICOMER_BLUE};">
+                📋 Copiar Link
+                </button>
+            """, height=50)
 
 # =========================
 # TAB ADMINISTRACIÓN
 # =========================
 with tabs[2]:
     if st.session_state.auth["role"] != "admin":
-        st.error("🔒 Acceso restringido. Solo administradores.")
+        st.error("Acceso restringido.")
     else:
-        st.subheader("👤 Gestión de Usuarios")
+        # --- USUARIOS ---
+        st.subheader("👤 Usuarios y Seguridad")
         u_df = df_query("SELECT username, role FROM users")
-        st.table(u_df)
+        st.dataframe(u_df, use_container_width=True)
         
-        u_gest = st.selectbox("Seleccionar usuario para editar/eliminar", u_df['username'].tolist())
+        u_gest = st.selectbox("Usuario a gestionar", u_df['username'].tolist())
+        col_ua, col_ub, col_uc = st.columns(3)
         
-        col_u1, col_u2 = st.columns(2)
+        with col_ua:
+            with st.expander("🔑 Cambiar Contraseña"):
+                new_pass = st.text_input("Nueva contraseña", type="password")
+                if st.button("Actualizar Password"):
+                    s, ph = make_password_record(new_pass)
+                    exec_sql("UPDATE users SET salt=?, pwd_hash=? WHERE username=?", (s, ph, u_gest))
+                    show_toast("Contraseña actualizada con éxito")
         
-        with col_u1:
-            # INTERRUPTOR DE PODER EXCLUSIVO PARA ADMIN SOBRE ULA_CORP_DESIGN
+        with col_ub:
             if st.session_state.auth["username"] == "admin" and u_gest == "ula_corp_design":
-                st.info("Control Maestro de ula_corp_design")
+                st.write("Estado de Administrador")
                 actual_r = u_df[u_df['username'] == u_gest]['role'].iloc[0]
-                nuevo_r = st.radio("Acceso a Administración:", ["Activado (admin)", "Desactivado (user)"], 
-                                   index=0 if actual_r == "admin" else 1)
-                if st.button("Aplicar Cambio de Permisos"):
-                    r_val = "admin" if "Activado" in nuevo_r else "user"
-                    exec_sql("UPDATE users SET role=? WHERE username=?", (r_val, u_gest))
-                    st.success(f"Permisos actualizados. {u_gest} ahora es {r_val}")
+                n_r = st.toggle("Permitir edición (Admin)", value=(actual_r == "admin"))
+                if st.button("Aplicar Rango"):
+                    rol_final = "admin" if n_r else "user"
+                    exec_sql("UPDATE users SET role=? WHERE username=?", (rol_final, u_gest))
+                    show_toast(f"Rango de {u_gest} cambiado a {rol_final}")
                     st.rerun()
-            
-            # AGREGAR NUEVO USUARIO
-            with st.expander("➕ Agregar Nuevo Usuario"):
-                new_un = st.text_input("Nombre de Usuario")
-                new_pw = st.text_input("Contraseña", type="password")
-                if st.button("Guardar Usuario"):
-                    if new_un and new_pw:
-                        s, ph = make_password_record(new_pw)
-                        exec_sql("INSERT INTO users(username, role, salt, pwd_hash) VALUES (?,?,?,?)", (new_un, "user", s, ph))
-                        st.success("Usuario creado")
-                        st.rerun()
 
-        with col_u2:
-            if st.button("🗑️ Eliminar Usuario seleccionado"):
+        with col_uc:
+            if st.button("🗑️ Eliminar Usuario"):
                 if u_gest in ["admin", "ula_corp_design", "luis_pena"]:
-                    st.error("No puedes eliminar usuarios base del sistema.")
+                    st.error("Protegido: No se puede eliminar.")
                 else:
                     exec_sql("DELETE FROM users WHERE username=?", (u_gest,))
-                    st.success("Usuario eliminado")
+                    show_toast("Usuario eliminado")
                     st.rerun()
 
         st.divider()
-        st.subheader("📁 Mantenimiento de Catálogos")
-        
+        # --- CATÁLOGOS ---
+        st.subheader("📁 Catálogos")
         c_add, t_add = st.columns(2)
         
-        # GESTIÓN DE CATEGORÍAS
         with c_add:
-            st.write("**Categorías (ej. Home, Categoría)**")
-            cat_n = st.text_input("Nombre Categoría")
-            cat_p = st.text_input("Prefijo (ej. hm, ct)")
-            if st.button("Añadir Categoría"):
-                exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cat_n, cat_p))
-                st.success("Categoría añadida")
+            st.write("**Nueva Categoría**")
+            cn = st.text_input("Nombre (ej. Home)")
+            cp = st.text_input("Prefijo (ej. hm)")
+            if st.button("Guardar Categoría"):
+                exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
+                show_toast("Categoría guardada")
                 st.rerun()
             
             st.write("---")
             if not cats_df.empty:
-                c_del = st.selectbox("Eliminar Categoría", cats_df['name'].tolist())
-                if st.button("Borrar Categoría"):
+                c_del = st.selectbox("Borrar Categoría", cats_df['name'].tolist())
+                if st.button("Eliminar Categoría"):
                     exec_sql("DELETE FROM categories WHERE name=?", (c_del,))
-                    st.success("Eliminada")
+                    show_toast("Categoría eliminada")
                     st.rerun()
 
-        # GESTIÓN DE TIPOS
         with t_add:
-            st.write("**Tipos de Componentes (ej. Banner, Grid)**")
-            tp_n = st.text_input("Nombre Tipo")
-            tp_c = st.text_input("Código (ej. bn, gd)")
-            tp_o = st.number_input("Cantidad de Posiciones", 1, 50, 5)
+            st.write("**Nuevo Tipo**")
+            tn = st.text_input("Nombre Tipo")
+            tc = st.text_input("Código")
+            to = st.number_input("Posiciones", 1, 50, 5)
             if st.button("Crear Tipo"):
-                exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tp_n, tp_c))
-                new_id = df_query("SELECT id FROM types WHERE code=?", (tp_c,)).iloc[0]['id']
-                for i in range(1, int(tp_o)+1):
-                    exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (new_id, i))
-                st.success("Tipo y posiciones creados")
+                exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tn, tc))
+                new_id = df_query("SELECT id FROM types WHERE code=?", (tc,)).iloc[0]['id']
+                for i in range(1, int(to)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (new_id, i))
+                show_toast("Tipo creado con éxito")
                 st.rerun()
 
             st.write("---")
             if not types_df.empty:
-                t_del = st.selectbox("Eliminar Tipo", types_df['name'].tolist())
-                if st.button("Borrar Tipo Completo"):
+                t_del = st.selectbox("Borrar Tipo", types_df['name'].tolist())
+                if st.button("Eliminar Tipo Completo"):
                     tid = int(types_df[types_df['name'] == t_del]['id'].values[0])
                     exec_sql("DELETE FROM type_orders WHERE type_id=?", (tid,))
                     exec_sql("DELETE FROM types WHERE id=?", (tid,))
-                    st.success("Tipo eliminado")
+                    show_toast("Tipo eliminado")
                     st.rerun()
