@@ -18,14 +18,10 @@ DB_PATH = str(BASE_DIR / "links.db")
 UNICOMER_LOGO = "https://grupounicomer.com/wp-content/uploads/2022/12/logo-sol-gris.png"
 UNICOMER_BLUE = "#002d5a"
 UNICOMER_YELLOW = "#fdbb2d"
-FIGMA_URL = "https://www.figma.com/design/ihSTaMfAmyN99BN5Z6sNps/Home-ULA?node-id=0-1&t=0q58oIwyTto6wv3R-1"
 
 # =========================
 # Lógica de Datos y DB
 # =========================
-HOME_TYPES_INIT = [("BannerRotativo", "rtv"), ("MejoresOfertas", "topd"), ("CategoriasDestacadas", "dtd"), ("BloqueFomo", "bcr"), ("MoreDeals", "dls"), ("Carrusel1Ofertas", "bts"), ("BannerMultiuso1", "bmuno"), ("Carrusel2Ofertas", "npd"), ("BannerMultiuso2", "bmdos"), ("Carrusel3Ofertas", "cdp"), ("Carousel4Ofertas", "cci"), ("CarouselconImagen", "imb"), ("MarcasDestacadas", "mdt"), ("BloqueDeBeneficios", "icb"), ("CintilloBajoRotativo", "cbr"), ("BannerMultiuso3", "bmtres"), ("MoreDealsRotativo", "mdr"), ("CarruselConPortada", "ccp"), ("MoreDealsCarrusel", "mdc"), ("BannerMoreDealsCarrusel", "bmdc"), ("BannerDeCategoria", "bdct"), ("DobleBannerMultiuso", "dbm"), ("BannerLateral", "bnl"), ("MoreDealsde4", "mddc"), ("MoreDealsVersion2", "mdvd"), ("BannerMulticarruselCP", "bpm"), ("CategoriasDestacadasDos", "dtddos"), ("CategoriasDestacadasTres", "cdtres"), ("ProductTop", "pdtop"), ("TopCategories", "tcat"), ("FomoAdviento", "fad"), ("PopUp", "popup"), ("BannerMultiusoCP", "bmcp"), ("PopUp2", "popdos"), ("BotonLateral", "btl")]
-ORDER_MAX_BY_CODE = {"rtv": 6, "topd": 1, "dtd": 1, "bcr": 4, "dls": 6, "bts": 1, "bmuno": 1, "npd": 1, "bmdos": 1, "cdp": 1, "cci": 1, "imb": 1, "mdt": 1, "icb": 1, "cbr": 1, "bmtres": 1, "mdr": 6, "ccp": 1, "mdc": 6, "bmdc": 1, "bdct": 10, "dbm": 2, "bnl": 1, "mddc": 4, "mdvd": 9, "bpm": 11, "dtddos": 3, "cdtres": 14, "pdtop": 6, "tcat": 6, "fad": 6, "popup": 1, "bmcp": 3, "popdos": 1, "btl": 1}
-
 def _hash_password(password: str, salt_hex: str) -> str:
     data = (salt_hex + password).encode("utf-8")
     return hashlib.sha256(data).hexdigest()
@@ -64,20 +60,6 @@ def init_db():
         if not cur.fetchone():
             s, p = make_password_record("admin123")
             cur.execute("INSERT INTO users(username, role, salt, pwd_hash, created_at) VALUES (?,?,?,?,?)", ("admin", "admin", s, p, datetime.now().isoformat()))
-        
-        cur.execute("SELECT COUNT(*) FROM categories")
-        if cur.fetchone()[0] == 0:
-            for n, p in [("Home", "hm"), ("PLP", "plp"), ("PDP", "pdp"), ("CLP", "clp")]:
-                cur.execute("INSERT INTO categories(name, prefix) VALUES (?,?)", (n, p))
-        
-        cur.execute("SELECT COUNT(*) FROM types")
-        if cur.fetchone()[0] == 0:
-            for name, code in HOME_TYPES_INIT:
-                cur.execute("INSERT INTO types(name, code) VALUES (?,?)", (name, code))
-                tid = cur.lastrowid
-                max_n = ORDER_MAX_BY_CODE.get(code, 20)
-                for n in range(1, max_n + 1):
-                    cur.execute("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, n))
 
 def get_user(username: str):
     u = username.strip().lower()
@@ -85,7 +67,7 @@ def get_user(username: str):
     return res.iloc[0].to_dict() if not res.empty else None
 
 # =========================
-# CSS Personalizado
+# CSS Personalizado (Mobile Optimized)
 # =========================
 def apply_custom_styles():
     st.markdown(f"""
@@ -96,6 +78,7 @@ def apply_custom_styles():
             background-color: white !important;
             border-radius: 8px !important;
         }}
+        /* Mejora Scroll Mobile */
         div[data-baseweb="popover"], div[data-baseweb="menu"] {{
             max-height: 350px !important;
             overflow-y: auto !important;
@@ -130,9 +113,9 @@ if not st.session_state.auth["is_logged"]:
     _, center, _ = st.columns([1, 2, 1])
     with center:
         st.markdown(f"<div style='text-align:center; margin-top:50px;'><img src='{UNICOMER_LOGO}' width='200'></div>", unsafe_allow_html=True)
-        st.markdown("<h2 style='text-align:center; color:#002d5a;'>Generador de IDs</h2>", unsafe_allow_html=True)
-        u_input = st.text_input("Usuario", key="login_user")
-        p_input = st.text_input("Contraseña", type="password", key="login_pwd")
+        st.markdown("<h2 style='text-align:center; color:#002d5a;'>Acceso al Sistema</h2>", unsafe_allow_html=True)
+        u_input = st.text_input("Usuario")
+        p_input = st.text_input("Contraseña", type="password")
         if st.button("ENTRAR"):
             user_data = get_user(u_input)
             if user_data and verify_password(p_input, user_data["salt"], user_data["pwd_hash"]):
@@ -142,111 +125,165 @@ if not st.session_state.auth["is_logged"]:
                 st.error("Credenciales incorrectas")
     st.stop()
 
-# --- APP ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown(f"<div style='filter: brightness(0) invert(1); text-align:center;'><img src='{UNICOMER_LOGO}' width='120'></div>", unsafe_allow_html=True)
     st.divider()
-    st.write(f"Usuario: **{st.session_state.auth['username']}**")
+    st.write(f"Sesión: **{st.session_state.auth['username']}**")
     if st.button("Cerrar Sesión"):
         st.session_state.auth = {"is_logged": False, "username": None, "role": None}
         st.rerun()
 
-tabs = st.tabs(["✅ Generar Link", "🕒 Historial", "⚙️ Administración"])
+tabs = st.tabs(["✅ Generador", "🕒 Historial", "⚙️ Administración"])
 
-# --- TAB GENERAR ---
+# --- TAB GENERADOR ---
 with tabs[0]:
-    _, col_main, _ = st.columns([0.05, 0.9, 0.05])
-    with col_main:
-        st.title(f"🔗 {APP_TITLE}")
-        st.info("Ingresa la URL base y selecciona los parámetros.")
-        base_url = st.text_input("URL base", placeholder="https://...")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            country = st.selectbox("País", ["SV", "GT", "CR", "HN", "NI", "PA", "DO", "JM", "TT"])
-        with c2:
-            cats_df = df_query("SELECT name, prefix FROM categories")
-            cat_options = [f"{r.name} ({r.prefix})" for r in cats_df.itertuples()]
-            cat_sel = st.selectbox("Categoría", cat_options) if not cats_df.empty else st.selectbox("Categoría", ["N/A"])
-        with c3:
-            types_df = df_query("SELECT id, name, code FROM types")
-            type_options = [f"{r.name} ({r.code})" for r in types_df.itertuples()]
-            type_sel = st.selectbox("Tipo", type_options) if not types_df.empty else st.selectbox("Tipo", ["N/A"])
+    st.title(f"🔗 {APP_TITLE}")
+    base_url = st.text_input("URL base del sitio", placeholder="https://...")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        country = st.selectbox("País", ["SV", "GT", "CR", "HN", "NI", "PA", "DO", "JM", "TT"])
+    with c2:
+        cats_df = df_query("SELECT name, prefix FROM categories")
+        cat_options = [f"{r.name} ({r.prefix})" for r in cats_df.itertuples()]
+        cat_sel = st.selectbox("Categoría", cat_options) if not cats_df.empty else st.selectbox("Categoría", ["N/A"])
+    with c3:
+        types_df = df_query("SELECT id, name, code FROM types")
+        type_options = [f"{r.name} ({r.code})" for r in types_df.itertuples()]
+        type_sel = st.selectbox("Tipo de Componente", type_options) if not types_df.empty else st.selectbox("Tipo", ["N/A"])
 
-        if not types_df.empty and "(" in type_sel:
-            t_code = type_sel.split("(")[1].replace(")", "")
-            t_id = int(types_df[types_df['code'] == t_code]['id'].values[0])
-            orders = df_query("SELECT order_no FROM type_orders WHERE type_id=? ORDER BY order_no", (t_id,))
-            order_list = orders['order_no'].tolist() if not orders.empty else list(range(1, 21))
-            order_val = st.selectbox("Posición", order_list)
+    if not types_df.empty and "(" in type_sel:
+        t_code = type_sel.split("(")[1].replace(")", "")
+        t_id = int(types_df[types_df['code'] == t_code]['id'].values[0])
+        orders = df_query("SELECT order_no FROM type_orders WHERE type_id=? ORDER BY order_no", (t_id,))
+        order_list = orders['order_no'].tolist() if not orders.empty else list(range(1, 11))
+        order_val = st.selectbox("Posición (Orden)", order_list)
 
-            if st.button("GENERAR"):
-                if base_url:
-                    c_prefix = cat_sel.split("(")[1].replace(")", "")
-                    hid = f"{c_prefix}_{t_code}_{order_val}"
-                    parsed = urlparse(base_url.strip())
-                    qs = dict(parse_qsl(parsed.query))
-                    qs['hid'] = hid
-                    final_url = urlunparse(parsed._replace(query=urlencode(qs)))
-                    exec_sql("INSERT INTO history (created_at, base_url, final_url, country, type_code, order_value, hid_value) VALUES (?,?,?,?,?,?,?)",
-                            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), base_url, final_url, country, t_code, str(order_val), hid))
-                    st.success(f"**HID:** {hid}")
-                    st.code(final_url)
-                    components.html(f"<button onclick=\"navigator.clipboard.writeText('{final_url}'); alert('¡Copiado!');\" style=\"width:100%; background:{UNICOMER_YELLOW}; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;\">📋 COPIAR</button>", height=60)
+        if st.button("GENERAR ID Y LINK"):
+            if base_url:
+                c_prefix = cat_sel.split("(")[1].replace(")", "")
+                hid = f"{c_prefix}_{t_code}_{order_val}"
+                parsed = urlparse(base_url.strip())
+                qs = dict(parse_qsl(parsed.query))
+                qs['hid'] = hid
+                final_url = urlunparse(parsed._replace(query=urlencode(qs)))
+                exec_sql("INSERT INTO history (created_at, base_url, final_url, country, type_code, order_value, hid_value) VALUES (?,?,?,?,?,?,?)",
+                        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), base_url, final_url, country, t_code, str(order_val), hid))
+                st.success(f"**ID Generado:** {hid}")
+                st.code(final_url)
+                components.html(f"<button onclick=\"navigator.clipboard.writeText('{final_url}'); alert('URL Copiada');\" style=\"width:100%; background:{UNICOMER_YELLOW}; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;\">📋 COPIAR LINK</button>", height=60)
 
 # --- TAB HISTORIAL ---
 with tabs[1]:
+    st.subheader("Registros Recientes")
     hist = df_query("SELECT created_at as Fecha, country as Pais, hid_value as HID, final_url as URL FROM history ORDER BY id DESC LIMIT 50")
     st.dataframe(hist, use_container_width=True)
 
-# --- TAB ADMIN (CRUD COMPLETO) ---
+# --- TAB ADMIN ---
 with tabs[2]:
     if st.session_state.auth["role"] != "admin":
-        st.error("Acceso restringido.")
+        st.error("No tienes permisos de administrador.")
     else:
-        st.subheader("🛠️ Panel de Control")
+        # --- SECCIÓN USUARIOS ---
+        st.header("👤 Gestión de Usuarios")
+        u_list = df_query("SELECT id, username, role FROM users")
+        st.dataframe(u_list, use_container_width=True)
         
-        # --- GESTIÓN DE USUARIOS ---
-        with st.expander("👤 Usuarios"):
-            u_list = df_query("SELECT id, username, role FROM users")
-            st.table(u_list)
-            with st.form("new_user"):
-                new_u = st.text_input("Nuevo Usuario")
-                new_p = st.text_input("Contraseña", type="password")
-                new_r = st.selectbox("Rol", ["user", "admin"])
-                if st.form_submit_button("Añadir Usuario"):
-                    s, p = make_password_record(new_p)
-                    exec_sql("INSERT INTO users(username, role, salt, pwd_hash, created_at) VALUES (?,?,?,?,?)",
-                            (new_u, new_r, s, p, datetime.now().isoformat()))
-                    st.success("Usuario creado.")
-                    st.rerun()
+        col_u1, col_u2 = st.columns(2)
+        with col_u1:
+            with st.expander("➕ Añadir Nuevo Usuario"):
+                with st.form("add_user_form"):
+                    nu = st.text_input("Nombre de Usuario")
+                    np = st.text_input("Contraseña", type="password")
+                    nr = st.selectbox("Rol", ["user", "admin"])
+                    if st.form_submit_button("Guardar Usuario"):
+                        if nu and np:
+                            s, p = make_password_record(np)
+                            exec_sql("INSERT INTO users(username, role, salt, pwd_hash, created_at) VALUES (?,?,?,?,?)", (nu, nr, s, p, datetime.now().isoformat()))
+                            st.success("Usuario creado")
+                            st.rerun()
 
-        # --- GESTIÓN DE CATEGORÍAS ---
-        with st.expander("📁 Categorías (Home, PLP, etc.)"):
-            c_list = df_query("SELECT * FROM categories")
-            st.dataframe(c_list, use_container_width=True)
-            with st.form("new_cat"):
-                cn = st.text_input("Nombre (ej: Checkout)")
-                cp = st.text_input("Prefijo (ej: chk)")
-                if st.form_submit_button("Añadir Categoría"):
-                    exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
+        with col_u2:
+            with st.expander("📝 Editar / Eliminar Usuario"):
+                user_to_mod = st.selectbox("Seleccionar usuario", u_list['username'].tolist() if not u_list.empty else [])
+                new_role = st.selectbox("Cambiar Rol", ["user", "admin"], key="edit_role")
+                new_pass = st.text_input("Nueva Contraseña (dejar vacío para no cambiar)", type="password")
+                
+                c_btn1, c_btn2 = st.columns(2)
+                if c_btn1.button("Actualizar Usuario"):
+                    if new_pass:
+                        s, p = make_password_record(new_pass)
+                        exec_sql("UPDATE users SET role=?, salt=?, pwd_hash=? WHERE username=?", (new_role, s, p, user_to_mod))
+                    else:
+                        exec_sql("UPDATE users SET role=? WHERE username=?", (new_role, user_to_mod))
+                    st.success("Usuario actualizado")
                     st.rerun()
-            del_cat = st.selectbox("Eliminar Categoría", c_list['name'].tolist() if not c_list.empty else [])
-            if st.button("Eliminar Seleccionada"):
-                exec_sql("DELETE FROM categories WHERE name=?", (del_cat,))
+                
+                if c_btn2.button("❌ Eliminar Usuario"):
+                    if user_to_mod == st.session_state.auth["username"]:
+                        st.error("No puedes eliminarte a ti mismo.")
+                    else:
+                        exec_sql("DELETE FROM users WHERE username=?", (user_to_mod,))
+                        st.success("Usuario eliminado")
+                        st.rerun()
+
+        st.divider()
+
+        # --- SECCIÓN TIPOS ---
+        st.header("🧩 Tipos de Componentes")
+        t_list = df_query("SELECT id, name, code FROM types")
+        st.dataframe(t_list, use_container_width=True)
+
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            with st.expander("➕ Añadir Nuevo Tipo"):
+                with st.form("add_type_form"):
+                    tn = st.text_input("Nombre (ej: Banner Hero)")
+                    tc = st.text_input("Código (ej: bhero)")
+                    tm = st.number_input("Cantidad de posiciones", min_value=1, value=5)
+                    if st.form_submit_button("Crear Tipo"):
+                        exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tn, tc))
+                        tid = df_query("SELECT id FROM types WHERE code=?", (tc,)).iloc[0]['id']
+                        for i in range(1, int(tm) + 1):
+                            exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
+                        st.success("Tipo creado")
+                        st.rerun()
+
+        with col_t2:
+            with st.expander("📝 Editar / Eliminar Tipo"):
+                type_to_mod = st.selectbox("Seleccionar tipo", t_list['name'].tolist() if not t_list.empty else [])
+                new_t_name = st.text_input("Nuevo Nombre")
+                new_t_code = st.text_input("Nuevo Código")
+                
+                ct_btn1, ct_btn2 = st.columns(2)
+                if ct_btn1.button("Actualizar Tipo"):
+                    exec_sql("UPDATE types SET name=?, code=? WHERE name=?", (new_t_name, new_t_code, type_to_mod))
+                    st.success("Tipo actualizado")
+                    st.rerun()
+                
+                if ct_btn2.button("❌ Eliminar Tipo"):
+                    # Obtener ID para borrar también las posiciones asociadas
+                    tid_res = df_query("SELECT id FROM types WHERE name=?", (type_to_mod,))
+                    if not tid_res.empty:
+                        tid_to_del = tid_res.iloc[0]['id']
+                        exec_sql("DELETE FROM type_orders WHERE type_id=?", (tid_to_del,))
+                        exec_sql("DELETE FROM types WHERE id=?", (tid_to_del,))
+                        st.success("Tipo y posiciones eliminadas")
+                        st.rerun()
+
+        # --- SECCIÓN CATEGORÍAS ---
+        st.divider()
+        st.header("📁 Categorías de Ubicación")
+        c_list = df_query("SELECT * FROM categories")
+        st.dataframe(c_list, use_container_width=True)
+        with st.expander("➕ Gestionar Categorías"):
+            c_name = st.text_input("Nombre Categoría (ej: Landing)")
+            c_pref = st.text_input("Prefijo (ej: lnd)")
+            if st.button("Añadir"):
+                exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (c_name, c_pref))
                 st.rerun()
-
-        # --- GESTIÓN DE TIPOS ---
-        with st.expander("🧩 Tipos de Componentes"):
-            t_list = df_query("SELECT * FROM types")
-            st.dataframe(t_list, use_container_width=True)
-            with st.form("new_type"):
-                tn = st.text_input("Nombre Componente")
-                tc = st.text_input("Código (ej: bnr)")
-                tm = st.number_input("Máximo de posiciones", min_value=1, value=10)
-                if st.form_submit_button("Añadir Tipo"):
-                    exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tn, tc))
-                    res = df_query("SELECT id FROM types WHERE code=?", (tc,))
-                    new_id = int(res.iloc[0]['id'])
-                    for i in range(1, tm + 1):
-                        exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (new_id, i))
-                    st.rerun()
+            
+            cat_del = st.selectbox("Eliminar Categoría", c_list['name'].tolist() if not c_list.empty else [])
+            if st.button("Eliminar"):
+                exec_sql("DELETE FROM categories WHERE name=?", (cat_del,))
+                st.rerun()
