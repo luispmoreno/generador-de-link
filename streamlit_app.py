@@ -42,6 +42,9 @@ st.markdown(f"""
         background-color: {UNICOMER_BLUE} !important; color: white !important;
         padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; display: inline-block; margin-top: 10px;
     }}
+    .delete-btn > div > button {{
+        background-color: #ff4b4b !important; color: white !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -65,7 +68,6 @@ def df_query(sql, params=()):
 # --- LIMPIEZA INICIAL ---
 @st.cache_resource
 def initial_cleanup():
-    # Solo deja a admin y luis_pena al arrancar
     exec_sql("DELETE FROM users WHERE username NOT IN ('admin', 'luis_pena')")
     return True
 
@@ -108,7 +110,7 @@ with tabs[0]:
     <div class="figma-box">
         <h4>🎨 Guía de Posiciones</h4>
         <p>Valida los códigos en el Figma oficial antes de generar.</p>
-        <a href="https://www.figma.com/design/ihSTaMfAmyN99BN5Z6sNps/Home-ULA?node-id=0-1&p=f/" target="_blank" class="figma-button">IR A FIGMA</a>
+        <a href="https://www.figma.com/" target="_blank" class="figma-button">IR A FIGMA</a>
     </div>
     ''', unsafe_allow_html=True)
     
@@ -204,13 +206,11 @@ if st.session_state.auth["role"] == "admin":
             with st.expander("➕ Añadir Nuevo Tipo"):
                 tn = st.text_input("Nombre Componente")
                 tc = st.text_input("Código")
-                # Si no tocas este campo, Streamlit enviará el 5 por defecto
                 tp = st.number_input("Posiciones iniciales", 1, 100, 5) 
                 if st.button("Crear"):
                     ok, msg = exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tn, tc))
                     if ok:
                         tid = df_query("SELECT id FROM types WHERE code=?", (tc,)).iloc[0]['id']
-                        # Se crean las posiciones basadas en el valor de 'tp' (sea 5 o el que elijas)
                         for i in range(1, int(tp)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
                         st.success("Creado"); time.sleep(1); st.rerun()
 
@@ -219,20 +219,30 @@ if st.session_state.auth["role"] == "admin":
                     sel_t = st.selectbox("Seleccionar Tipo", sum_df['Nombre'].tolist())
                     t_dat = sum_df[sum_df['Nombre'] == sel_t].iloc[0]
                     
-                    # BLINDAJE: Si por error la base devuelve 0, lo forzamos a 1 para evitar errores
                     val_pos = max(1, int(t_dat['Posiciones']))
                     
                     en = st.text_input("Nuevo Nombre", value=t_dat['Nombre'])
                     ec = st.text_input("Nuevo Código", value=t_dat['Código'])
-                    ep = st.number_input("Editar Posiciones", 1, 100, value=val_pos) # Editable ahora
+                    ep = st.number_input("Editar Posiciones", 1, 100, value=val_pos)
                     
-                    if st.button("Actualizar"):
-                        exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (en, ec, int(t_dat['id'])))
-                        # Lógica para añadir o quitar posiciones según el nuevo número
-                        old_p = int(t_dat['Posiciones'])
-                        if ep > old_p:
-                            for i in range(old_p + 1, int(ep) + 1): 
-                                exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (int(t_dat['id']), i))
-                        elif ep < old_p:
-                            exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (int(t_dat['id']), int(ep)))
-                        st.success("Actualizado"); time.sleep(1); st.rerun()
+                    c_upd, c_del = st.columns(2)
+                    with c_upd:
+                        if st.button("Actualizar"):
+                            exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (en, ec, int(t_dat['id'])))
+                            old_p = int(t_dat['Posiciones'])
+                            if ep > old_p:
+                                for i in range(old_p + 1, int(ep) + 1): 
+                                    exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (int(t_dat['id']), i))
+                            elif ep < old_p:
+                                exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (int(t_dat['id']), int(ep)))
+                            st.success("Actualizado"); time.sleep(1); st.rerun()
+                    
+                    with c_del:
+                        # BOTÓN DE ELIMINACIÓN
+                        if st.button(f"🗑️ Eliminar {sel_t}"):
+                            tid = int(t_dat['id'])
+                            # Borramos posiciones primero por integridad
+                            exec_sql("DELETE FROM type_orders WHERE type_id=?", (tid,))
+                            # Borramos el tipo
+                            exec_sql("DELETE FROM types WHERE id=?", (tid,))
+                            st.warning(f"Tipo '{sel_t}' eliminado"); time.sleep(1); st.rerun()
