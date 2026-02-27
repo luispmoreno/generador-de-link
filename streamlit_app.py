@@ -108,7 +108,7 @@ with tabs[0]:
     <div class="figma-box">
         <h4>🎨 Guía de Posiciones</h4>
         <p>Valida los códigos en el Figma oficial antes de generar.</p>
-        <a href="https://www.figma.com/" target="_blank" class="figma-button">IR A FIGMA</a>
+        <a href="https://www.figma.com/design/ihSTaMfAmyN99BN5Z6sNps/Home-ULA?node-id=0-1&p=f/" target="_blank" class="figma-button">IR A FIGMA</a>
     </div>
     ''', unsafe_allow_html=True)
     
