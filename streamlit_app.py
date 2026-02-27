@@ -216,7 +216,7 @@ with tabs[2]:
 
         st.divider()
 
-        # --- SECCIÓN MANTENIMIENTO DE CATÁLOGOS (CON EDICIÓN) ---
+        # --- SECCIÓN MANTENIMIENTO DE CATÁLOGOS ---
         st.subheader("📁 Mantenimiento de Catálogos")
         col_cat, col_tipo = st.columns(2)
         
@@ -236,8 +236,8 @@ with tabs[2]:
                 row_c = cats_df[cats_df['name'] == c_to_edit].iloc[0]
                 
                 with st.expander("📝 Editar Seleccionada"):
-                    new_cn = st.text_input("Nuevo Nombre", value=row_c['name'])
-                    new_cp = st.text_input("Nuevo Prefijo", value=row_c['prefix'])
+                    new_cn = st.text_input("Nuevo Nombre", value=row_c['name'], key="ed_cat_n")
+                    new_cp = st.text_input("Nuevo Prefijo", value=row_c['prefix'], key="ed_cat_p")
                     if st.button("Actualizar Categoría"):
                         exec_sql("UPDATE categories SET name=?, prefix=? WHERE id=?", (new_cn, new_cp, int(row_c['id'])))
                         show_toast("Categoría actualizada")
@@ -247,33 +247,51 @@ with tabs[2]:
                     exec_sql("DELETE FROM categories WHERE id=?", (int(row_c['id']),))
                     st.rerun()
 
-        # TIPOS
+        # TIPOS (CON EDICIÓN DE POSICIONES)
         with col_tipo:
             st.write("**Tipos de Componentes**")
             with st.expander("➕ Añadir Nuevo"):
                 t_n = st.text_input("Nombre", key="t_new_n")
                 t_c = st.text_input("Código", key="t_new_c")
-                t_o = st.number_input("Posiciones", 1, 50, 5)
+                t_o = st.number_input("Posiciones", 1, 50, 5, key="t_new_o")
                 if st.button("Crear"):
                     exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (t_n, t_c))
                     new_tid = df_query("SELECT id FROM types WHERE code=?", (t_c,)).iloc[0]['id']
-                    for i in range(1, int(t_o)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (new_tid, i))
+                    for i in range(1, int(t_o)+1): 
+                        exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (new_tid, i))
                     st.rerun()
 
             if not types_df.empty:
                 st.write("---")
                 t_to_edit = st.selectbox("Seleccionar para Editar/Borrar", types_df['name'].tolist(), key="sel_tp_ed")
                 row_t = types_df[types_df['name'] == t_to_edit].iloc[0]
+                tid = int(row_t['id'])
+                
+                # Obtener cantidad actual de posiciones
+                current_pos_count = len(df_query("SELECT id FROM type_orders WHERE type_id=?", (tid,)))
                 
                 with st.expander("📝 Editar Seleccionado"):
-                    new_tn = st.text_input("Nuevo Nombre Tipo", value=row_t['name'])
-                    new_tc = st.text_input("Nuevo Código", value=row_t['code'])
-                    if st.button("Actualizar Tipo"):
-                        exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (new_tn, new_tc, int(row_t['id'])))
-                        show_toast("Tipo actualizado")
+                    new_tn = st.text_input("Nuevo Nombre Tipo", value=row_t['name'], key="ed_tp_n")
+                    new_tc = st.text_input("Nuevo Código", value=row_t['code'], key="ed_tp_c")
+                    new_to = st.number_input("Cantidad de Posiciones", 1, 50, value=current_pos_count, key="ed_tp_o")
+                    
+                    if st.button("Actualizar Tipo y Posiciones"):
+                        # 1. Actualizar Nombre y Código
+                        exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (new_tn, new_tc, tid))
+                        
+                        # 2. Gestionar Posiciones
+                        if new_to > current_pos_count:
+                            # Añadir las que faltan
+                            for i in range(current_pos_count + 1, int(new_to) + 1):
+                                exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
+                        elif new_to < current_pos_count:
+                            # Eliminar las sobrantes (empezando por la más alta)
+                            exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (tid, int(new_to)))
+                        
+                        show_toast("Tipo y Posiciones actualizados")
                         st.rerun()
                 
                 if st.button("❌ Eliminar Tipo", key="del_tp_btn"):
-                    exec_sql("DELETE FROM type_orders WHERE type_id=?", (int(row_t['id']),))
-                    exec_sql("DELETE FROM types WHERE id=?", (int(row_t['id']),))
+                    exec_sql("DELETE FROM type_orders WHERE type_id=?", (tid,))
+                    exec_sql("DELETE FROM types WHERE id=?", (tid,))
                     st.rerun()
