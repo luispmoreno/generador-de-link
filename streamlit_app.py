@@ -83,7 +83,6 @@ def init_db():
         cur.execute("CREATE TABLE IF NOT EXISTS type_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, type_id INTEGER, order_no INTEGER);")
         cur.execute("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, base_url TEXT, final_url TEXT, country TEXT, type_code TEXT, order_value TEXT, hid_value TEXT);")
         
-        # Lista Maestra de Usuarios
         master_users = [
             ("admin", "admin", "admin123"),
             ("ula_corp_design", "admin", "Dcorp$26"),
@@ -105,7 +104,7 @@ def init_db():
 init_db()
 
 # =========================
-# Manejo de Sesión
+# Auth y Sesión
 # =========================
 if "auth" not in st.session_state:
     st.session_state.auth = {"is_logged": False, "username": None, "role": None}
@@ -169,7 +168,6 @@ with tabs[0]:
             
             st.info(f"ID Generado: {hid}")
             st.code(final_url)
-            # Botón de copiar del mismo tamaño que el de arriba
             components.html(f"""
                 <button onclick="navigator.clipboard.writeText('{final_url}'); this.innerText='¡COPIADO!'; setTimeout(()=>{{this.innerText='📋 COPIAR LINK'}}, 2000)" 
                 style="width:100%; background:{UNICOMER_YELLOW}; border:none; height:45px; border-radius:8px; font-weight:bold; cursor:pointer; color:{UNICOMER_BLUE}; font-family:sans-serif; font-size:14px;">
@@ -184,13 +182,13 @@ with tabs[2]:
     if st.session_state.auth["role"] != "admin":
         st.error("🔒 Acceso Restringido.")
     else:
+        # --- SECCIÓN USUARIOS ---
         st.subheader("👤 Gestión de Usuarios")
         u_df = df_query("SELECT username, role FROM users")
         st.dataframe(u_df, use_container_width=True)
         
-        col_ua, col_ub = st.columns(2)
-        
-        with col_ua:
+        col_u1, col_u2 = st.columns(2)
+        with col_u1:
             with st.expander("➕ Agregar Nuevo Usuario"):
                 new_un = st.text_input("Nombre de Usuario", key="new_u")
                 new_pw = st.text_input("Contraseña", type="password", key="new_p")
@@ -202,8 +200,8 @@ with tabs[2]:
                         show_toast("Usuario creado con éxito")
                         st.rerun()
 
-        with col_ub:
-            u_sel = st.selectbox("Seleccionar usuario para editar", u_df['username'].tolist())
+        with col_u2:
+            u_sel = st.selectbox("Seleccionar usuario para gestionar", u_df['username'].tolist())
             with st.expander("🔑 Cambiar Contraseña"):
                 up_pass = st.text_input("Nueva password", type="password")
                 if st.button("Actualizar Password"):
@@ -211,48 +209,73 @@ with tabs[2]:
                     exec_sql("UPDATE users SET salt=?, pwd_hash=? WHERE username=?", (s, ph, u_sel))
                     show_toast("Password actualizado")
 
-        col_admin_tools, col_del = st.columns(2)
-        with col_admin_tools:
+        # Control de Rango y Borrado
+        c_rango, c_borrar = st.columns(2)
+        with c_rango:
             if st.session_state.auth["username"] == "admin" and u_sel == "ula_corp_design":
-                st.write("**Permisos Administrativos**")
                 actual_r = u_df[u_df['username'] == u_sel]['role'].iloc[0]
-                toggle_r = st.toggle("Permitir edición total", value=(actual_r == "admin"))
-                if st.button("Aplicar Rango"):
+                toggle_r = st.toggle("Permitir edición (Admin)", value=(actual_r == "admin"))
+                if st.button("Aplicar Cambio Rango"):
                     rol_val = "admin" if toggle_r else "user"
                     exec_sql("UPDATE users SET role=? WHERE username=?", (rol_val, u_sel))
                     show_toast(f"Rango de {u_sel} actualizado")
                     st.rerun()
 
-        with col_del:
-            if st.button("🗑️ Eliminar Usuario seleccionado"):
+        with c_borrar:
+            if st.button("🗑️ Eliminar Usuario"):
                 if u_sel in ["admin", "ula_corp_design", "luis_pena"]:
-                    st.error("No se puede eliminar un usuario raíz.")
+                    st.error("Usuario protegido.")
                 else:
                     exec_sql("DELETE FROM users WHERE username=?", (u_sel,))
                     show_toast("Usuario eliminado")
                     st.rerun()
 
         st.divider()
-        st.subheader("📁 Catálogos")
-        c_col, t_col = st.columns(2)
         
-        with c_col:
+        # --- SECCIÓN CATÁLOGOS (RESTAURADA) ---
+        st.subheader("📁 Mantenimiento de Catálogos")
+        col_cat, col_tipo = st.columns(2)
+        
+        with col_cat:
             st.write("**Categorías**")
-            cn = st.text_input("Nombre")
-            cp = st.text_input("Prefijo")
-            if st.button("Guardar Categoría"):
-                exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
-                show_toast("Categoría guardada")
-                st.rerun()
+            # Agregar
+            with st.expander("Añadir Nueva"):
+                cn = st.text_input("Nombre (ej. Home)")
+                cp = st.text_input("Prefijo (ej. hm)")
+                if st.button("Guardar Categoría"):
+                    exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
+                    show_toast("Categoría guardada")
+                    st.rerun()
+            # Eliminar
+            if not cats_df.empty:
+                st.write("---")
+                c_a_borrar = st.selectbox("Seleccionar Categoría para Borrar", cats_df['name'].tolist())
+                if st.button("❌ Eliminar Categoría"):
+                    exec_sql("DELETE FROM categories WHERE name=?", (c_a_borrar,))
+                    show_toast("Categoría eliminada")
+                    st.rerun()
 
-        with t_col:
-            st.write("**Tipos**")
-            tn = st.text_input("Nombre Tipo")
-            tc = st.text_input("Código")
-            to = st.number_input("Posiciones", 1, 50, 5)
-            if st.button("Crear Tipo"):
-                exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tn, tc))
-                new_id = df_query("SELECT id FROM types WHERE code=?", (tc,)).iloc[0]['id']
-                for i in range(1, int(to)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (new_id, i))
-                show_toast("Tipo creado")
-                st.rerun()
+        with col_tipo:
+            st.write("**Tipos de Componentes**")
+            # Agregar
+            with st.expander("Añadir Nuevo"):
+                tn = st.text_input("Nombre Tipo")
+                tc = st.text_input("Código")
+                to = st.number_input("Posiciones iniciales", 1, 50, 5)
+                if st.button("Crear Tipo"):
+                    exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tn, tc))
+                    new_id = df_query("SELECT id FROM types WHERE code=?", (tc,)).iloc[0]['id']
+                    for i in range(1, int(to)+1): 
+                        exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (new_id, i))
+                    show_toast("Tipo creado")
+                    st.rerun()
+            # Eliminar
+            if not types_df.empty:
+                st.write("---")
+                t_a_borrar = st.selectbox("Seleccionar Tipo para Borrar", types_df['name'].tolist())
+                if st.button("❌ Eliminar Tipo"):
+                    tid = int(types_df[types_df['name'] == t_a_borrar]['id'].values[0])
+                    exec_sql("DELETE FROM type_orders WHERE type_id=?", (tid,))
+                    exec_sql("DELETE FROM types WHERE id=?", (tid,))
+                    show_toast("Tipo y posiciones eliminados")
+                    st.rerun()
