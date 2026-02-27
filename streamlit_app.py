@@ -23,14 +23,12 @@ if "auth" not in st.session_state:
 
 UNICOMER_BLUE = "#002d5a"
 UNICOMER_YELLOW = "#fdbb2d"
-# Logo original (el filtro CSS lo hará blanco)
 UNICOMER_LOGO_URL = "https://grupounicomer.com/wp-content/uploads/2022/12/logo-sol-gris.png"
 
 st.markdown(f"""
 <style>
     [data-testid="stSidebar"] {{ background-color: {UNICOMER_BLUE} !important; }}
     [data-testid="stSidebar"] * {{ color: white !important; }}
-    /* FILTRO PARA LOGO BLANCO */
     .white-logo {{ filter: brightness(0) invert(1); width: 180px; margin-bottom: 20px; }}
     div.stButton > button {{
         background-color: {UNICOMER_YELLOW} !important;
@@ -58,7 +56,7 @@ def exec_sql(sql, params=()):
             conn.commit()
             return True
     except sqlite3.IntegrityError:
-        st.error("❌ El nombre o código ya existe.")
+        st.error("❌ El nombre o código ya existe en la base de datos.") # Corrigiendo error de la imagen image_c95bf8
         return False
 
 def df_query(sql, params=()):
@@ -85,10 +83,10 @@ if not st.session_state.auth["is_logged"]:
     st.stop()
 
 # =========================
-# 4. INTERFAZ PRINCIPAL
+# 4. INTERFAZ
 # =========================
 with st.sidebar:
-    st.markdown(f'<img src="{UNICOMER_LOGO_URL}" class="white-logo">', unsafe_allow_html=True)
+    st.markdown(f'<img src="{UNICOMER_LOGO_URL}" class="white-logo">', unsafe_allow_html=True) # Logo blanco
     st.write(f"👤 **{st.session_state.auth['username']}**")
     if st.button("Cerrar Sesión"):
         st.session_state.auth = {"is_logged": False}
@@ -96,10 +94,10 @@ with st.sidebar:
 
 tabs = st.tabs(["✅ Generador", "🕒 Historial", "⚙️ Administración"])
 
-# --- TAB 1: GENERADOR (RECUPERADO) ---
+# --- TAB GENERADOR ---
 with tabs[0]:
-    st.markdown('<div class="figma-box"><h4>🎨 Guía de Posiciones</h4><p>Consulta el <a href="https://www.figma.com/" target="_blank">Figma aquí</a>.</p></div>', unsafe_allow_html=True)
-    url_base = st.text_input("URL base", placeholder="https://www.lacuracaonline.com/elsalvador/...")
+    st.markdown('<div class="figma-box"><h4>🎨 Guía de Posiciones</h4><p>Consulta el Figma oficial para validar los códigos.</p></div>', unsafe_allow_html=True)
+    url_base = st.text_input("URL base", placeholder="https://...")
     
     c1, c2, c3 = st.columns(3)
     pais = c1.selectbox("País", ["SV", "GT", "CR", "HN", "NI", "PA", "DO", "JM", "TT"])
@@ -117,8 +115,6 @@ with tabs[0]:
         if st.button("GENERAR ID Y LINK"):
             pref = cat_sel.split("(")[1].replace(")", "")
             hid = f"{pref}_{t_code}_{pos}"
-            
-            # Construcción de Link
             p_url = urlparse(url_base.strip())
             qs = dict(parse_qsl(p_url.query))
             qs['hid'] = hid
@@ -126,102 +122,82 @@ with tabs[0]:
             
             exec_sql("INSERT INTO history (created_at, base_url, final_url, country, type_code, order_value, hid_value) VALUES (?,?,?,?,?,?,?)",
                     (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), url_base, f_url, pais, t_code, str(pos), hid))
-            
             st.success(f"ID Generado: {hid}")
             st.code(f_url)
-            components.html(f'<button onclick="navigator.clipboard.writeText(\'{f_url}\'); alert(\'Copiado\')" style="width:100%; background:{UNICOMER_YELLOW}; border:none; height:45px; border-radius:8px; font-weight:bold; cursor:pointer;">📋 COPIAR LINK</button>', height=50)
 
-# --- TAB 2: HISTORIAL (RECUPERADO) ---
+# --- TAB HISTORIAL ---
 with tabs[1]:
     st.subheader("🕒 Registros Generados")
     hist_df = df_query("SELECT created_at, country, hid_value, final_url FROM history ORDER BY id DESC")
     st.dataframe(hist_df, use_container_width=True)
 
-# --- TAB 3: ADMINISTRACIÓN (CORREGIDO Y AMPLIADO) ---
+# --- TAB ADMINISTRACIÓN ---
 if st.session_state.auth["role"] == "admin":
     with tabs[2]:
-        st.title("⚙️ Panel de Control")
+        st.title("⚙️ Panel de Administración")
         
-        # A. GESTIÓN DE USUARIOS
-        st.subheader("👤 Gestión de Usuarios")
+        # 1. Gestión de Usuarios
+        st.subheader("👤 Usuarios Registrados")
         users_df = df_query("SELECT id, username, role, created_at FROM users")
         st.dataframe(users_df, use_container_width=True)
         
-        with st.expander("Acciones de Usuario"):
-            u1, u2 = st.columns(2)
-            with u1:
-                new_un = st.text_input("Nuevo Username", key="nu")
-                new_pw = st.text_input("Password", type="password", key="np")
-                if st.button("Crear Usuario"):
-                    salt = secrets.token_hex(16)
-                    ph = hashlib.sha256((salt + new_pw).encode("utf-8")).hexdigest()
-                    exec_sql("INSERT INTO users(username, role, salt, pwd_hash, created_at) VALUES (?,?,?,?,?)", (new_un, 'user', salt, ph, datetime.now().isoformat()))
-                    st.rerun()
-            with u2:
-                u_del = st.selectbox("Eliminar Usuario", users_df['username'].tolist(), key="ud")
-                if st.button("🗑️ Confirmar Eliminación"):
-                    if u_del not in ['admin', 'leslie_mejia']:
-                        exec_sql("DELETE FROM users WHERE username=?", (u_del,))
-                        st.rerun()
-
+        # 2. Resumen de Tipos y Posiciones
         st.divider()
-
-        # B. TABLA DE TIPOS (POSICIONADA SEGÚN SOLICITUD)
         st.subheader("📊 Resumen de Tipos y Posiciones")
-        summary = df_query("""SELECT t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
+        summary = df_query("""SELECT t.id, t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
                            FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
-        st.dataframe(summary, use_container_width=True)
+        st.dataframe(summary[["Nombre", "Código", "Posiciones"]], use_container_width=True)
 
         st.divider()
-
-        # C. MANTENIMIENTO DE CATÁLOGOS
-        st.subheader("🛠️ Mantenimiento de Catálogos")
+        st.subheader("🛠️ Mantenimiento de Catálogos y Componentes")
         col_cat, col_typ = st.columns(2)
         
         with col_cat:
             with st.expander("📁 Categorías"):
-                cn = st.text_input("Nombre Categoría", key="cn_")
-                cp = st.text_input("Prefijo", key="cp_")
-                if st.button("Guardar Categoría"):
+                cn = st.text_input("Nombre Categoría", key="add_cat_n")
+                cp = st.text_input("Prefijo", key="add_cat_p")
+                if st.button("Añadir Categoría"):
                     exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
                     st.rerun()
-                if not cats.empty:
-                    c_borrar = st.selectbox("Borrar Categoría", cats['name'].tolist())
-                    if st.button(f"Eliminar {c_borrar}"):
-                        exec_sql("DELETE FROM categories WHERE name=?", (c_borrar,))
-                        st.rerun()
 
         with col_typ:
-            with st.expander("➕ Añadir Tipo"):
-                tn = st.text_input("Nombre Tipo", key="tn_")
-                tc = st.text_input("Código Tipo", key="tc_")
-                tp = st.number_input("Posiciones", 1, 100, 5, key="tp_")
-                if st.button("Crear Nuevo Tipo"):
-                    if exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tn, tc)):
-                        tid = df_query("SELECT id FROM types WHERE code=?", (tc,)).iloc[0]['id']
-                        for i in range(1, int(tp)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
+            with st.expander("➕ Añadir Nuevo Tipo"):
+                atn = st.text_input("Nombre Tipo", key="atn")
+                atc = st.text_input("Código", key="atc")
+                atp = st.number_input("Posiciones", 1, 50, 5, key="atp")
+                if st.button("Crear Tipo"):
+                    if exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (atn, atc)):
+                        tid = df_query("SELECT id FROM types WHERE code=?", (atc,)).iloc[0]['id']
+                        for i in range(1, int(atp)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
                         st.rerun()
-            
+
+            # --- SECCIÓN DE EDICIÓN (SOLICITADA) ---
             if not summary.empty:
                 st.write("**📝 Editar Seleccionado**")
-                t_manage = st.selectbox("Seleccionar", summary['Nombre'].tolist(), key="tm")
+                t_manage = st.selectbox("Seleccionar para Editar/Borrar", summary['Nombre'].tolist(), key="sel_to_edit")
+                
+                # CARGA AUTOMÁTICA DE DATOS
                 t_row = summary[summary['Nombre'] == t_manage].iloc[0]
-                t_id_real = df_query("SELECT id FROM types WHERE name=?", (t_manage,)).iloc[0]['id']
+                t_id_real = int(t_row['id'])
                 
-                with st.expander(f"Modificar {t_manage}"):
-                    en = st.text_input("Nombre", value=t_row['Nombre'], key="en_")
-                    ec = st.text_input("Código", value=t_row['Código'], key="ec_")
-                    ep = st.number_input("Posiciones", 1, 100, value=max(1, int(t_row['Posiciones'])), key="ep_")
-                    if st.button("Actualizar Componente"):
-                        exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (en, ec, int(t_id_real)))
-                        curr = int(t_row['Posiciones'])
-                        if ep > curr:
-                            for i in range(curr + 1, int(ep) + 1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (int(t_id_real), i))
-                        elif ep < curr:
-                            exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (int(t_id_real), int(ep)))
-                        st.rerun()
+                with st.expander("📝 Ver/Modificar Información"):
+                    # Los campos 'value' ahora cargan la info de la base de datos automáticamente
+                    en = st.text_input("Nuevo Nombre Tipo", value=t_row['Nombre'], key="edit_n")
+                    ec = st.text_input("Nuevo Código", value=t_row['Código'], key="edit_c")
+                    # Blindaje contra StreamlitValueBelowMinError
+                    ep = st.number_input("Cantidad de Posiciones", 1, 50, value=max(1, int(t_row['Posiciones'])), key="edit_p")
+                    
+                    if st.button("Actualizar Tipo", key="upd_btn"):
+                        exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (en, ec, t_id_real))
+                        curr_count = int(t_row['Posiciones'])
+                        if ep > curr_count:
+                            for i in range(curr_count + 1, int(ep) + 1):
+                                exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (t_id_real, i))
+                        elif ep < curr_count:
+                            exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (t_id_real, int(ep)))
+                        st.success("¡Datos actualizados!"); time.sleep(0.5); st.rerun()
                 
-                if st.button(f"❌ Eliminar Tipo: {t_manage}"):
-                    exec_sql("DELETE FROM type_orders WHERE type_id=?", (int(t_id_real),))
-                    exec_sql("DELETE FROM types WHERE id=?", (int(t_id_real),))
+                if st.button(f"🗑️ Eliminar Tipo: {t_manage}", key="del_btn_t"):
+                    exec_sql("DELETE FROM type_orders WHERE type_id=?", (t_id_real,))
+                    exec_sql("DELETE FROM types WHERE id=?", (t_id_real,))
                     st.rerun()
