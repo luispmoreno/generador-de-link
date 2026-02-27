@@ -24,6 +24,7 @@ UNICOMER_BLUE = "#002d5a"
 UNICOMER_YELLOW = "#fdbb2d"
 UNICOMER_LOGO_URL = "https://grupounicomer.com/wp-content/uploads/2022/12/logo-sol-gris.png"
 
+# Estilos CSS
 st.markdown(f"""
 <style>
     [data-testid="stSidebar"] {{ background-color: {UNICOMER_BLUE} !important; }}
@@ -54,7 +55,7 @@ def exec_sql(sql, params=()):
             conn.commit()
             return True, "✅ Acción realizada con éxito"
     except sqlite3.IntegrityError:
-        return False, "❌ Error: Ese registro ya existe"
+        return False, "❌ Error: Ese registro ya existe en la base de datos."
     except Exception as e:
         return False, f"❌ Error: {str(e)}"
 
@@ -63,9 +64,9 @@ def df_query(sql, params=()):
         return pd.read_sql_query(sql, conn, params=params)
 
 # =========================
-# 2. LIMPIEZA AUTOMÁTICA DE USUARIOS
+# 2. LIMPIEZA FORZADA DE USUARIOS (SOLUCIÓN AL ERROR)
 # =========================
-# Esto garantiza que solo existan los usuarios base para evitar errores de duplicidad.
+# Esto corre cada vez que la app se refresca para asegurar que la tabla coincida con lo que ves.
 exec_sql("DELETE FROM users WHERE username NOT IN ('admin', 'luis_pena')")
 
 # =========================
@@ -144,7 +145,7 @@ with tabs[1]:
     historial = df_query("SELECT created_at as Fecha, country as Pais, hid_value as ID, final_url as URL FROM history ORDER BY id DESC")
     st.dataframe(historial, use_container_width=True)
 
-# --- TAB 3: ADMINISTRACIÓN (RECUPERADO Y CORREGIDO) ---
+# --- TAB 3: ADMINISTRACIÓN (RECUPERADO COMPLETO) ---
 if st.session_state.auth["role"] == "admin":
     with tabs[2]:
         st.title("⚙️ Panel de Administración")
@@ -173,7 +174,7 @@ if st.session_state.auth["role"] == "admin":
                     sel_user = st.selectbox("Seleccionar usuario", users_df['username'].tolist(), key="s_u_edit")
                     u_info = users_df[users_df['username'] == sel_user].iloc[0]
                     new_role = st.selectbox("Cambiar Rol", ["admin", "user"], index=0 if u_info['role'] == 'admin' else 1)
-                    new_pass = st.text_input("Cambiar Contraseña (opcional)", type="password")
+                    new_pass = st.text_input("Nueva Contraseña (opcional)", type="password")
                     
                     if st.button("Actualizar Usuario"):
                         if new_pass:
@@ -182,73 +183,67 @@ if st.session_state.auth["role"] == "admin":
                             exec_sql("UPDATE users SET role=?, salt=?, pwd_hash=? WHERE username=?", (new_role, salt, ph, sel_user))
                         else:
                             exec_sql("UPDATE users SET role=? WHERE username=?", (new_role, sel_user))
-                        st.success("✅ Actualizado"); time.sleep(1); st.rerun()
+                        st.success("✅ Usuario actualizado"); time.sleep(1); st.rerun()
                     
-                    if st.button("🗑️ Eliminar"):
+                    if st.button("🗑️ Eliminar Usuario"):
                         if sel_user not in ['admin', 'luis_pena']:
                             exec_sql("DELETE FROM users WHERE username=?", (sel_user,))
                             st.rerun()
 
-        # 2. RESUMEN DE TIPOS
-        st.divider()
-        st.subheader("📊 Resumen de Tipos y Posiciones")
-        summary = df_query("""SELECT t.id, t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
-                           FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
-        st.dataframe(summary[["Nombre", "Código", "Posiciones"]], use_container_width=True)
-
-        # 3. MANTENIMIENTO DE CATÁLOGOS (RESTAURADO)
+        # 2. MANTENIMIENTO DE CATÁLOGOS Y TIPOS (RECUPERADO)
         st.divider()
         st.subheader("🛠️ Mantenimiento de Catálogos")
         col_cat, col_typ = st.columns(2)
         
         with col_cat:
-            with st.expander("📁 Gestión de Categorías"):
-                c_name = st.text_input("Nombre Nueva Categoría")
-                c_pref = st.text_input("Prefijo (Ej: hme)")
+            with st.expander("📁 Categorías"):
+                cn = st.text_input("Nombre Categoría")
+                cp = st.text_input("Prefijo")
                 if st.button("Guardar Categoría"):
-                    ok, msg = exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (c_name, c_pref))
+                    ok, msg = exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
                     if ok: st.success(msg); time.sleep(1); st.rerun()
                 
                 if not cats_df.empty:
                     st.write("---")
-                    c_del = st.selectbox("Eliminar Categoría", cats_df['name'].tolist())
-                    if st.button(f"Borrar {c_del}"):
+                    c_del = st.selectbox("Borrar Categoría", cats_df['name'].tolist())
+                    if st.button(f"Eliminar {c_del}"):
                         exec_sql("DELETE FROM categories WHERE name=?", (c_del,))
                         st.rerun()
 
         with col_typ:
-            with st.expander("➕ Añadir Nuevo Tipo"):
-                atn = st.text_input("Nombre Componente")
-                atc = st.text_input("Código Corto")
-                atp = st.number_input("Posiciones iniciales", 1, 50, 5)
+            with st.expander("➕ Nuevo Tipo"):
+                tn = st.text_input("Nombre Componente")
+                tc = st.text_input("Código")
+                tp = st.number_input("Posiciones iniciales", 1, 50, 5)
                 if st.button("Crear Tipo"):
-                    ok, msg = exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (atn, atc))
+                    ok, msg = exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tn, tc))
                     if ok:
-                        tid = df_query("SELECT id FROM types WHERE code=?", (atc,)).iloc[0]['id']
-                        for i in range(1, int(atp)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
+                        tid = df_query("SELECT id FROM types WHERE code=?", (tc,)).iloc[0]['id']
+                        for i in range(1, int(tp)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
                         st.success(msg); time.sleep(1); st.rerun()
+                    else: st.error(msg)
 
-            if not summary.empty:
-                with st.expander("📝 Editar / Borrar Tipo"):
-                    sel_t = st.selectbox("Seleccionar para Modificar", summary['Nombre'].tolist())
-                    t_data = summary[summary['Nombre'] == sel_t].iloc[0]
+            # Bloque de edición con auto-relleno
+            sum_df = df_query("""SELECT t.id, t.name, t.code, COUNT(o.id) as pos 
+                              FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
+            if not sum_df.empty:
+                with st.expander("📝 Editar Tipo"):
+                    sel_t = st.selectbox("Seleccionar Tipo", sum_df['name'].tolist())
+                    t_dat = sum_df[sum_df['name'] == sel_t].iloc[0]
+                    en = st.text_input("Nuevo Nombre", value=t_dat['name'])
+                    ec = st.text_input("Nuevo Código", value=t_dat['code'])
+                    ep = st.number_input("Posiciones", 1, 100, value=int(t_dat['pos']))
                     
-                    # Auto-relleno de datos actuales
-                    edit_n = st.text_input("Nuevo Nombre", value=t_data['Nombre'], key="e_n")
-                    edit_c = st.text_input("Nuevo Código", value=t_data['Código'], key="e_c")
-                    edit_p = st.number_input("Cant. Posiciones", 1, 100, value=max(1, int(t_data['Posiciones'])), key="e_p")
-                    
-                    if st.button("Actualizar Componente"):
-                        exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (edit_n, edit_c, int(t_data['id'])))
-                        curr_p = int(t_data['Posiciones'])
-                        if edit_p > curr_p:
-                            for i in range(curr_p + 1, int(edit_p) + 1): 
-                                exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (int(t_data['id']), i))
-                        elif edit_p < curr_p:
-                            exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (int(t_data['id']), int(edit_p)))
-                        st.success("✅ Cambios aplicados"); time.sleep(1); st.rerun()
+                    if st.button("Actualizar"):
+                        exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (en, ec, int(t_dat['id'])))
+                        curr = int(t_dat['pos'])
+                        if ep > curr:
+                            for i in range(curr + 1, int(ep) + 1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (int(t_dat['id']), i))
+                        elif ep < curr:
+                            exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (int(t_dat['id']), int(ep)))
+                        st.success("✅ Cambios guardados"); time.sleep(1); st.rerun()
 
-                    if st.button(f"🗑️ Eliminar Tipo: {sel_t}"):
-                        exec_sql("DELETE FROM type_orders WHERE type_id=?", (int(t_data['id']),))
-                        exec_sql("DELETE FROM types WHERE id=?", (int(t_data['id']),))
+                    if st.button(f"🗑️ Borrar {sel_t}"):
+                        exec_sql("DELETE FROM type_orders WHERE type_id=?", (int(t_dat['id']),))
+                        exec_sql("DELETE FROM types WHERE id=?", (int(t_dat['id']),))
                         st.rerun()
