@@ -64,7 +64,7 @@ def init_db():
             s, p = make_password_record("admin123")
             cur.execute("INSERT INTO users(username, role, salt, pwd_hash, created_at) VALUES (?,?,?,?,?)", ("admin", "admin", s, p, datetime.now().isoformat()))
         
-        # Admin Corp Design
+        # Admin Corp Design (Se crea como admin por defecto)
         cur.execute("SELECT 1 FROM users WHERE username='ula_corp_design'")
         if not cur.fetchone():
             s, p = make_password_record("Dcorp$26")
@@ -180,7 +180,7 @@ with tabs[1]:
         except: st.warning("Instale 'xlsxwriter' para habilitar descargas.")
         st.dataframe(hist, use_container_width=True)
 
-# --- TAB ADMINISTRACIÓN (RECUPERADA) ---
+# --- TAB ADMINISTRACIÓN ---
 with tabs[2]:
     if st.session_state.auth["role"] != "admin":
         st.error("🔒 Acceso restringido a administradores.")
@@ -191,6 +191,7 @@ with tabs[2]:
         st.subheader("👤 Usuarios")
         u_df = df_query("SELECT id, username, role FROM users")
         st.dataframe(u_df, use_container_width=True)
+        
         with st.expander("➕ / 📝 Editar Usuarios"):
             col1, col2 = st.columns(2)
             with col1:
@@ -204,17 +205,36 @@ with tabs[2]:
             with col2:
                 st.write("**Editar/Eliminar**")
                 u_sel = st.selectbox("Usuario", u_df['username'].tolist())
+                
+                # Bloqueo de eliminación para admins críticos
+                is_protected = u_sel in ["admin", "ula_corp_design"]
+                
+                # Control de Rango (Solo disponible para el admin principal sobre ula_corp_design)
+                if u_sel == "ula_corp_design" and st.session_state.auth["username"] == "admin":
+                    new_role = st.radio("Herramientas Admin:", ["Activado (admin)", "Desactivado (user)"], index=0 if u_df[u_df['username']=="ula_corp_design"]['role'].iloc[0] == "admin" else 1)
+                    if st.button("Cambiar Permisos"):
+                        role_val = "admin" if "Activado" in new_role else "user"
+                        exec_sql("UPDATE users SET role=? WHERE username=?", (role_val, u_sel))
+                        st.success(f"Permisos de {u_sel} actualizados.")
+                        st.rerun()
+
                 new_un = st.text_input("Nuevo nombre", value=u_sel)
                 new_up = st.text_input("Nueva pass (vacío = sin cambios)", type="password")
+                
                 ca, cb = st.columns(2)
-                if ca.button("Actualizar"):
+                if ca.button("Actualizar Datos"):
                     if new_up:
                         s, p = make_password_record(new_up)
                         exec_sql("UPDATE users SET username=?, salt=?, pwd_hash=? WHERE username=?", (new_un, s, p, u_sel))
                     else: exec_sql("UPDATE users SET username=? WHERE username=?", (new_un, u_sel))
                     st.rerun()
-                if cb.button("🗑️ Eliminar") and u_sel not in ["admin", "ula_corp_design"]:
-                    exec_sql("DELETE FROM users WHERE username=?", (u_sel,)); st.rerun()
+                
+                if cb.button("🗑️ Eliminar"):
+                    if is_protected:
+                        st.error("Este usuario es crítico y no puede eliminarse.")
+                    else:
+                        exec_sql("DELETE FROM users WHERE username=?", (u_sel,))
+                        st.rerun()
 
         # 2. CATÁLOGO (CATEGORÍAS)
         st.divider()
@@ -230,13 +250,13 @@ with tabs[2]:
                     exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (acn, acp)); st.rerun()
             with col2:
                 st.write("**Editar**")
-                c_sel = st.selectbox("Seleccionar Cat", c_df['name'].tolist() if not c_df.empty else [])
+                c_sel_cat = st.selectbox("Seleccionar Cat", c_df['name'].tolist() if not c_df.empty else [])
                 ecn = st.text_input("Nuevo Nombre")
                 ecp = st.text_input("Nuevo Prefijo")
                 if st.button("Modificar Cat"):
-                    exec_sql("UPDATE categories SET name=?, prefix=? WHERE name=?", (ecn, ecp, c_sel)); st.rerun()
+                    exec_sql("UPDATE categories SET name=?, prefix=? WHERE name=?", (ecn, ecp, c_sel_cat)); st.rerun()
                 if st.button("🗑️ Borrar Cat"):
-                    exec_sql("DELETE FROM categories WHERE name=?", (c_sel,)); st.rerun()
+                    exec_sql("DELETE FROM categories WHERE name=?", (c_sel_cat,)); st.rerun()
 
         # 3. TIPOS Y POSICIONES
         st.divider()
@@ -256,16 +276,16 @@ with tabs[2]:
                         st.rerun()
             with col2:
                 st.write("**Modificar Tipo**")
-                t_sel = st.selectbox("Tipo", t_df['name'].tolist() if not t_df.empty else [])
+                t_sel_edit = st.selectbox("Tipo", t_df['name'].tolist() if not t_df.empty else [])
                 etn = st.text_input("Editar Nombre T"); etc = st.text_input("Editar Código T"); etp = st.number_input("Nuevas Posiciones", 1, 50, 5)
                 ta, tb = st.columns(2)
                 if ta.button("Actualizar Todo"):
-                    tid = int(t_df[t_df['name'] == t_sel]['id'].values[0])
+                    tid = int(t_df[t_df['name'] == t_sel_edit]['id'].values[0])
                     exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (etn, etc, tid))
                     exec_sql("DELETE FROM type_orders WHERE type_id=?", (tid,))
                     for i in range(1, int(etp)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
                     st.rerun()
                 if tb.button("🗑️ Eliminar Tipo"):
-                    tid = int(t_df[t_df['name'] == t_sel]['id'].values[0])
+                    tid = int(t_df[t_df['name'] == t_sel_edit]['id'].values[0])
                     exec_sql("DELETE FROM type_orders WHERE type_id=?", (tid,))
                     exec_sql("DELETE FROM types WHERE id=?", (tid,)); st.rerun()
