@@ -52,9 +52,9 @@ def exec_sql(sql, params=()):
             cur = conn.cursor()
             cur.execute(sql, params)
             conn.commit()
-            return True, "✅ Acción realizada con éxito"
+            return True, "✅ Operación exitosa"
     except sqlite3.IntegrityError:
-        return False, "❌ Error: Este registro ya existe (el nombre o código ya están en uso)."
+        return False, "❌ Error: Registro duplicado."
     except Exception as e:
         return False, f"❌ Error: {str(e)}"
 
@@ -62,19 +62,17 @@ def df_query(sql, params=()):
     with sqlite3.connect(DB_PATH) as conn:
         return pd.read_sql_query(sql, conn, params=params)
 
-# =========================
-# 2. LIMPIEZA INICIAL ÚNICA
-# =========================
-# Usamos cache para que solo limpie la base AL ARRANCAR la app, permitiendo que nuevos registros se mantengan.
+# --- LIMPIEZA INICIAL ---
 @st.cache_resource
-def initial_db_cleanup():
+def initial_cleanup():
+    # Solo deja a admin y luis_pena al arrancar
     exec_sql("DELETE FROM users WHERE username NOT IN ('admin', 'luis_pena')")
     return True
 
-initial_db_cleanup()
+initial_cleanup()
 
 # =========================
-# 3. LOGIN
+# 2. LOGIN
 # =========================
 if not st.session_state.auth["is_logged"]:
     _, center, _ = st.columns([1, 2, 1])
@@ -93,7 +91,7 @@ if not st.session_state.auth["is_logged"]:
     st.stop()
 
 # =========================
-# 4. INTERFAZ
+# 3. INTERFAZ
 # =========================
 with st.sidebar:
     st.markdown(f'<img src="{UNICOMER_LOGO_URL}" class="white-logo">', unsafe_allow_html=True)
@@ -170,30 +168,24 @@ if st.session_state.auth["role"] == "admin":
                     ph = hashlib.sha256((salt + new_p).encode("utf-8")).hexdigest()
                     ok, msg = exec_sql("INSERT INTO users(username, role, salt, pwd_hash, created_at) VALUES (?,?,?,?,?)", 
                                       (new_u, new_r, salt, ph, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                    if ok:
-                        st.success(msg)
-                        time.sleep(1)
-                        st.rerun() # Esto refresca la tabla inmediatamente
-                    else:
-                        st.error(msg)
+                    if ok: st.success("Registrado"); time.sleep(1); st.rerun()
+                    else: st.error(msg)
         
         with u_col2:
             if not users_df.empty:
-                with st.expander("📝 Editar / Eliminar Usuario"):
-                    sel_user = st.selectbox("Seleccionar usuario", users_df['username'].tolist(), key="s_u_edit")
-                    if st.button("🗑️ Eliminar Usuario Seleccionado"):
-                        if sel_user not in ['admin', 'luis_pena']:
-                            exec_sql("DELETE FROM users WHERE username=?", (sel_user,))
+                with st.expander("🗑️ Eliminar Usuario"):
+                    sel_u = st.selectbox("Usuario a borrar", users_df['username'].tolist())
+                    if st.button("Eliminar"):
+                        if sel_u not in ['admin', 'luis_pena']:
+                            exec_sql("DELETE FROM users WHERE username=?", (sel_u,))
                             st.rerun()
-                        else:
-                            st.warning("No puedes borrar usuarios base.")
 
         # 2. RESUMEN DE TIPOS
         st.divider()
-        st.subheader("📊 Resumen de Tipos y Posiciones")
-        summary_df = df_query("""SELECT t.id, t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
-                              FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
-        st.dataframe(summary_df[["Nombre", "Código", "Posiciones"]], use_container_width=True)
+        st.subheader("📊 Resumen de Tipos")
+        sum_df = df_query("""SELECT t.id, t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
+                          FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
+        st.dataframe(sum_df[["Nombre", "Código", "Posiciones"]], use_container_width=True)
 
         # 3. MANTENIMIENTO
         st.divider()
@@ -202,37 +194,45 @@ if st.session_state.auth["role"] == "admin":
         
         with col_cat:
             with st.expander("📁 Categorías"):
-                cn = st.text_input("Nombre Categoría")
+                cn = st.text_input("Nombre")
                 cp = st.text_input("Prefijo")
-                if st.button("Añadir Categoría"):
-                    ok, msg = exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
-                    if ok: st.success(msg); time.sleep(1); st.rerun()
+                if st.button("Guardar Cat"):
+                    exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
+                    st.rerun()
 
         with col_typ:
             with st.expander("➕ Añadir Nuevo Tipo"):
                 tn = st.text_input("Nombre Componente")
                 tc = st.text_input("Código")
-                tp = st.number_input("Posiciones", 1, 50, 5)
-                if st.button("Crear Tipo"):
+                # Si no tocas este campo, Streamlit enviará el 5 por defecto
+                tp = st.number_input("Posiciones iniciales", 1, 100, 5) 
+                if st.button("Crear"):
                     ok, msg = exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tn, tc))
                     if ok:
                         tid = df_query("SELECT id FROM types WHERE code=?", (tc,)).iloc[0]['id']
+                        # Se crean las posiciones basadas en el valor de 'tp' (sea 5 o el que elijas)
                         for i in range(1, int(tp)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
-                        st.success(msg); time.sleep(1); st.rerun()
+                        st.success("Creado"); time.sleep(1); st.rerun()
 
-            if not summary_df.empty:
+            if not sum_df.empty:
                 with st.expander("📝 Editar / Borrar Tipo"):
-                    sel_t = st.selectbox("Seleccionar Tipo", summary_df['Nombre'].tolist())
-                    t_dat = summary_df[summary_df['Nombre'] == sel_t].iloc[0]
-                    en = st.text_input("Nombre Actual", value=t_dat['Nombre'])
-                    ec = st.text_input("Código Actual", value=t_dat['Código'])
-                    ep = st.number_input("Cantidad Posiciones", 1, 100, value=int(t_dat['Posiciones']))
+                    sel_t = st.selectbox("Seleccionar Tipo", sum_df['Nombre'].tolist())
+                    t_dat = sum_df[sum_df['Nombre'] == sel_t].iloc[0]
+                    
+                    # BLINDAJE: Si por error la base devuelve 0, lo forzamos a 1 para evitar errores
+                    val_pos = max(1, int(t_dat['Posiciones']))
+                    
+                    en = st.text_input("Nuevo Nombre", value=t_dat['Nombre'])
+                    ec = st.text_input("Nuevo Código", value=t_dat['Código'])
+                    ep = st.number_input("Editar Posiciones", 1, 100, value=val_pos) # Editable ahora
                     
                     if st.button("Actualizar"):
                         exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (en, ec, int(t_dat['id'])))
-                        curr = int(t_dat['Posiciones'])
-                        if ep > curr:
-                            for i in range(curr + 1, int(ep) + 1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (int(t_dat['id']), i))
-                        elif ep < curr:
+                        # Lógica para añadir o quitar posiciones según el nuevo número
+                        old_p = int(t_dat['Posiciones'])
+                        if ep > old_p:
+                            for i in range(old_p + 1, int(ep) + 1): 
+                                exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (int(t_dat['id']), i))
+                        elif ep < old_p:
                             exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (int(t_dat['id']), int(ep)))
-                        st.success("✅ Cambios guardados"); time.sleep(1); st.rerun()
+                        st.success("Actualizado"); time.sleep(1); st.rerun()
