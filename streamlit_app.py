@@ -181,38 +181,51 @@ with tabs[2]:
     if st.session_state.auth["role"] != "admin":
         st.error("🔒 Acceso Restringido.")
     else:
-        # --- SECCIÓN USUARIOS ---
         st.subheader("👤 Gestión de Usuarios")
         u_df = df_query("SELECT username, role FROM users")
         st.dataframe(u_df, use_container_width=True)
         
         u_sel = st.selectbox("Seleccionar usuario para gestionar", u_df['username'].tolist())
+        actual_role = u_df[u_df['username'] == u_sel]['role'].iloc[0]
+        
         col_u1, col_u2 = st.columns(2)
         with col_u1:
-            with st.expander("➕ Agregar Nuevo"):
+            with st.expander("➕ Agregar Nuevo Usuario"):
                 new_un = st.text_input("Nombre de Usuario", key="add_u_adm")
                 new_pw = st.text_input("Contraseña", type="password", key="add_p_adm")
                 if st.button("Registrar Usuario"):
                     if new_un and new_pw:
                         s, ph = make_password_record(new_pw)
-                        exec_sql("INSERT INTO users(username, role, salt, pwd_hash, created_at) VALUES (?,?,?,?,?)", 
+                        exec_sql("INSERT OR IGNORE INTO users(username, role, salt, pwd_hash, created_at) VALUES (?,?,?,?,?)", 
                                 (new_un, "user", s, ph, datetime.now().isoformat()))
                         show_toast("Usuario creado")
                         st.rerun()
+            
+            # --- NUEVA OPCIÓN DE RANGO ---
+            st.write("---")
+            is_admin_toggle = st.toggle("Permitir edición (Admin)", value=(actual_role == "admin"), key="admin_toggle")
+            if st.button("Aplicar Rango"):
+                new_role = "admin" if is_admin_toggle else "user"
+                exec_sql("UPDATE users SET role=? WHERE username=?", (new_role, u_sel))
+                show_toast(f"Rango de {u_sel} actualizado a {new_role}")
+                st.rerun()
+
         with col_u2:
             with st.expander("🔑 Cambiar Contraseña"):
                 up_pass = st.text_input("Nueva password", type="password", key="up_p_adm")
-                if st.button("Actualizar"):
-                    s, ph = make_password_record(up_pass)
-                    exec_sql("UPDATE users SET salt=?, pwd_hash=? WHERE username=?", (s, ph, u_sel))
-                    show_toast("Password actualizado")
+                if st.button("Actualizar Password"):
+                    if up_pass:
+                        s, ph = make_password_record(up_pass)
+                        exec_sql("UPDATE users SET salt=?, pwd_hash=? WHERE username=?", (s, ph, u_sel))
+                        show_toast("Password actualizado")
 
-        if st.button("🗑️ Eliminar Usuario Seleccionado"):
-            if u_sel in ["admin", "ula_corp_design"]: st.error("Protegido")
-            else:
-                exec_sql("DELETE FROM users WHERE username=?", (u_sel,))
-                show_toast("Usuario eliminado")
-                st.rerun()
+            if st.button("🗑️ Eliminar Usuario Seleccionado"):
+                if u_sel in ["admin", "ula_corp_design"]:
+                    st.error("Esta cuenta maestra no puede eliminarse.")
+                else:
+                    exec_sql("DELETE FROM users WHERE username=?", (u_sel,))
+                    show_toast("Usuario eliminado")
+                    st.rerun()
 
         st.divider()
 
@@ -220,13 +233,12 @@ with tabs[2]:
         st.subheader("📁 Mantenimiento de Catálogos")
         col_cat, col_tipo = st.columns(2)
         
-        # CATEGORÍAS
         with col_cat:
             st.write("**Categorías**")
             with st.expander("➕ Añadir Nueva"):
                 c_n = st.text_input("Nombre", key="c_new_n")
                 c_p = st.text_input("Prefijo", key="c_new_p")
-                if st.button("Guardar"):
+                if st.button("Guardar Categoría"):
                     exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (c_n, c_p))
                     st.rerun()
             
@@ -247,14 +259,13 @@ with tabs[2]:
                     exec_sql("DELETE FROM categories WHERE id=?", (int(row_c['id']),))
                     st.rerun()
 
-        # TIPOS (CON EDICIÓN DE POSICIONES)
         with col_tipo:
             st.write("**Tipos de Componentes**")
             with st.expander("➕ Añadir Nuevo"):
                 t_n = st.text_input("Nombre", key="t_new_n")
                 t_c = st.text_input("Código", key="t_new_c")
                 t_o = st.number_input("Posiciones", 1, 50, 5, key="t_new_o")
-                if st.button("Crear"):
+                if st.button("Crear Tipo"):
                     exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (t_n, t_c))
                     new_tid = df_query("SELECT id FROM types WHERE code=?", (t_c,)).iloc[0]['id']
                     for i in range(1, int(t_o)+1): 
@@ -266,8 +277,6 @@ with tabs[2]:
                 t_to_edit = st.selectbox("Seleccionar para Editar/Borrar", types_df['name'].tolist(), key="sel_tp_ed")
                 row_t = types_df[types_df['name'] == t_to_edit].iloc[0]
                 tid = int(row_t['id'])
-                
-                # Obtener cantidad actual de posiciones
                 current_pos_count = len(df_query("SELECT id FROM type_orders WHERE type_id=?", (tid,)))
                 
                 with st.expander("📝 Editar Seleccionado"):
@@ -276,18 +285,12 @@ with tabs[2]:
                     new_to = st.number_input("Cantidad de Posiciones", 1, 50, value=current_pos_count, key="ed_tp_o")
                     
                     if st.button("Actualizar Tipo y Posiciones"):
-                        # 1. Actualizar Nombre y Código
                         exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (new_tn, new_tc, tid))
-                        
-                        # 2. Gestionar Posiciones
                         if new_to > current_pos_count:
-                            # Añadir las que faltan
                             for i in range(current_pos_count + 1, int(new_to) + 1):
                                 exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
                         elif new_to < current_pos_count:
-                            # Eliminar las sobrantes (empezando por la más alta)
                             exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (tid, int(new_to)))
-                        
                         show_toast("Tipo y Posiciones actualizados")
                         st.rerun()
                 
