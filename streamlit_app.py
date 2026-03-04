@@ -149,12 +149,12 @@ with tabs[1]:
     historial = df_query("SELECT created_at as Fecha, country as Pais, hid_value as ID, final_url as URL FROM history ORDER BY id DESC")
     st.dataframe(historial, use_container_width=True)
 
-# --- TAB 3: ADMINISTRACIÓN ---
-if st.session_state.auth["role"] == "admin":
-    with tabs[2]:
-        st.title("⚙️ Panel de Administración")
-        
-        # 1. GESTIÓN DE USUARIOS
+# --- TAB 3: ADMINISTRACIÓN (MODIFICADO) ---
+with tabs[2]:
+    st.title("⚙️ Panel de Administración")
+    
+    # 1. GESTIÓN DE USUARIOS (Solo visible para Admin)
+    if st.session_state.auth["role"] == "admin":
         st.subheader("👤 Usuarios Registrados")
         users_df = df_query("SELECT id, username, role, created_at FROM users")
         st.dataframe(users_df, use_container_width=True)
@@ -182,14 +182,15 @@ if st.session_state.auth["role"] == "admin":
                             exec_sql("DELETE FROM users WHERE username=?", (sel_u,))
                             st.rerun()
 
-        # 2. RESUMEN DE TIPOS
-        st.divider()
-        st.subheader("📊 Resumen de Tipos")
-        sum_df = df_query("""SELECT t.id, t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
-                          FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
-        st.dataframe(sum_df[["Nombre", "Código", "Posiciones"]], use_container_width=True)
+    # 2. RESUMEN DE TIPOS (VISIBLE PARA TODOS: ADMIN Y USER)
+    st.divider()
+    st.subheader("📊 Resumen de Tipos")
+    sum_df = df_query("""SELECT t.id, t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
+                         FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
+    st.dataframe(sum_df[["Nombre", "Código", "Posiciones"]], use_container_width=True)
 
-        # 3. MANTENIMIENTO
+    # 3. MANTENIMIENTO (Solo visible para Admin)
+    if st.session_state.auth["role"] == "admin":
         st.divider()
         st.subheader("🛠️ Mantenimiento de Catálogos")
         col_cat, col_typ = st.columns(2)
@@ -238,11 +239,8 @@ if st.session_state.auth["role"] == "admin":
                             st.success("Actualizado"); time.sleep(1); st.rerun()
                     
                     with c_del:
-                        # BOTÓN DE ELIMINACIÓN
                         if st.button(f"🗑️ Eliminar {sel_t}"):
                             tid = int(t_dat['id'])
-                            # Borramos posiciones primero por integridad
                             exec_sql("DELETE FROM type_orders WHERE type_id=?", (tid,))
-                            # Borramos el tipo
                             exec_sql("DELETE FROM types WHERE id=?", (tid,))
                             st.warning(f"Tipo '{sel_t}' eliminado"); time.sleep(1); st.rerun()
