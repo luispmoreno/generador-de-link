@@ -42,9 +42,6 @@ st.markdown(f"""
         background-color: {UNICOMER_BLUE} !important; color: white !important;
         padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; display: inline-block; margin-top: 10px;
     }}
-    .delete-btn > div > button {{
-        background-color: #ff4b4b !important; color: white !important;
-    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -65,13 +62,17 @@ def df_query(sql, params=()):
     with sqlite3.connect(DB_PATH) as conn:
         return pd.read_sql_query(sql, conn, params=params)
 
-# --- LIMPIEZA INICIAL ---
-@st.cache_resource
-def initial_cleanup():
-    exec_sql("DELETE FROM users WHERE username NOT IN ('admin', 'luis_pena')")
-    return True
+# --- MIGRACIÓN Y PERSISTENCIA ---
+# Eliminamos initial_cleanup para que los usuarios no se borren.
+# Aseguramos que la tabla history tenga la columna 'username'.
+def ensure_db_structure():
+    # Intenta agregar la columna username si no existe (Migración silenciosa)
+    try:
+        exec_sql("ALTER TABLE history ADD COLUMN username TEXT")
+    except:
+        pass # La columna ya existe
 
-initial_cleanup()
+ensure_db_structure()
 
 # =========================
 # 2. LOGIN
@@ -110,7 +111,7 @@ with tabs[0]:
     <div class="figma-box">
         <h4>🎨 Guía de Posiciones</h4>
         <p>Valida los códigos en el Figma oficial antes de generar.</p>
-        <a href="https://www.figma.com/" target="_blank" class="figma-button">IR A FIGMA</a>
+        <a href="https://www.figma.com/design/ihSTaMfAmyN99BN5Z6sNps/Home-ULA?node-id=0-1&p=f&t=QoYAbgJju2kuyRIF-0" target="_blank" class="figma-button">IR A FIGMA</a>
     </div>
     ''', unsafe_allow_html=True)
     
@@ -138,22 +139,31 @@ with tabs[0]:
                 qs['hid'] = hid
                 f_url = urlunparse(p_url._replace(query=urlencode(qs)))
                 
-                exec_sql("INSERT INTO history (created_at, country, hid_value, final_url) VALUES (?,?,?,?)",
-                        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pais, hid, f_url))
+                # Guardamos incluyendo el nombre de usuario para el historial
+                exec_sql("INSERT INTO history (created_at, country, hid_value, final_url, username) VALUES (?,?,?,?,?)",
+                        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pais, hid, f_url, st.session_state.auth["username"]))
+                
                 st.success(f"ID Generado: {hid}")
                 st.code(f_url)
+                time.sleep(2) # Confirmación visible por 2 segundos
 
 # --- TAB 2: HISTORIAL ---
 with tabs[1]:
     st.subheader("🕒 Registros Generados")
-    historial = df_query("SELECT created_at as Fecha, country as Pais, hid_value as ID, final_url as URL FROM history ORDER BY id DESC")
+    
+    # Lógica de filtrado: Admin ve todo, User ve solo lo suyo
+    if st.session_state.auth["role"] == "admin":
+        historial = df_query("SELECT created_at as Fecha, username as Usuario, country as Pais, hid_value as ID, final_url as URL FROM history ORDER BY id DESC")
+    else:
+        historial = df_query("SELECT created_at as Fecha, country as Pais, hid_value as ID, final_url as URL FROM history WHERE username=? ORDER BY id DESC", 
+                             (st.session_state.auth["username"],))
+        
     st.dataframe(historial, use_container_width=True)
 
-# --- TAB 3: ADMINISTRACIÓN (MODIFICADO) ---
+# --- TAB 3: ADMINISTRACIÓN ---
 with tabs[2]:
     st.title("⚙️ Panel de Administración")
     
-    # 1. GESTIÓN DE USUARIOS (Solo visible para Admin)
     if st.session_state.auth["role"] == "admin":
         st.subheader("👤 Usuarios Registrados")
         users_df = df_query("SELECT id, username, role, created_at FROM users")
@@ -170,7 +180,10 @@ with tabs[2]:
                     ph = hashlib.sha256((salt + new_p).encode("utf-8")).hexdigest()
                     ok, msg = exec_sql("INSERT INTO users(username, role, salt, pwd_hash, created_at) VALUES (?,?,?,?,?)", 
                                       (new_u, new_r, salt, ph, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                    if ok: st.success("Registrado"); time.sleep(1); st.rerun()
+                    if ok: 
+                        st.success("Registrado")
+                        time.sleep(2)
+                        st.rerun()
                     else: st.error(msg)
         
         with u_col2:
@@ -180,16 +193,18 @@ with tabs[2]:
                     if st.button("Eliminar"):
                         if sel_u not in ['admin', 'luis_pena']:
                             exec_sql("DELETE FROM users WHERE username=?", (sel_u,))
+                            st.warning(f"Usuario {sel_u} eliminado")
+                            time.sleep(2)
                             st.rerun()
 
-    # 2. RESUMEN DE TIPOS (VISIBLE PARA TODOS: ADMIN Y USER)
+    # Resumen de Tipos (Visible para todos)
     st.divider()
     st.subheader("📊 Resumen de Tipos")
     sum_df = df_query("""SELECT t.id, t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
                          FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
     st.dataframe(sum_df[["Nombre", "Código", "Posiciones"]], use_container_width=True)
 
-    # 3. MANTENIMIENTO (Solo visible para Admin)
+    # Mantenimiento (Solo Admin)
     if st.session_state.auth["role"] == "admin":
         st.divider()
         st.subheader("🛠️ Mantenimiento de Catálogos")
@@ -201,6 +216,8 @@ with tabs[2]:
                 cp = st.text_input("Prefijo")
                 if st.button("Guardar Cat"):
                     exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
+                    st.success("Categoría guardada")
+                    time.sleep(2)
                     st.rerun()
 
         with col_typ:
@@ -212,14 +229,16 @@ with tabs[2]:
                     ok, msg = exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (tn, tc))
                     if ok:
                         tid = df_query("SELECT id FROM types WHERE code=?", (tc,)).iloc[0]['id']
-                        for i in range(1, int(tp)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
-                        st.success("Creado"); time.sleep(1); st.rerun()
+                        for i in range(1, int(tp)+1): 
+                            exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
+                        st.success("Tipo creado correctamente")
+                        time.sleep(2)
+                        st.rerun()
 
             if not sum_df.empty:
                 with st.expander("📝 Editar / Borrar Tipo"):
                     sel_t = st.selectbox("Seleccionar Tipo", sum_df['Nombre'].tolist())
                     t_dat = sum_df[sum_df['Nombre'] == sel_t].iloc[0]
-                    
                     val_pos = max(1, int(t_dat['Posiciones']))
                     
                     en = st.text_input("Nuevo Nombre", value=t_dat['Nombre'])
@@ -236,11 +255,15 @@ with tabs[2]:
                                     exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (int(t_dat['id']), i))
                             elif ep < old_p:
                                 exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (int(t_dat['id']), int(ep)))
-                            st.success("Actualizado"); time.sleep(1); st.rerun()
+                            st.success("Cambios aplicados")
+                            time.sleep(2)
+                            st.rerun()
                     
                     with c_del:
                         if st.button(f"🗑️ Eliminar {sel_t}"):
                             tid = int(t_dat['id'])
                             exec_sql("DELETE FROM type_orders WHERE type_id=?", (tid,))
                             exec_sql("DELETE FROM types WHERE id=?", (tid,))
-                            st.warning(f"Tipo '{sel_t}' eliminado"); time.sleep(1); st.rerun()
+                            st.warning(f"Tipo '{sel_t}' eliminado")
+                            time.sleep(2)
+                            st.rerun()
