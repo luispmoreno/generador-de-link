@@ -24,7 +24,7 @@ UNICOMER_BLUE = "#002d5a"
 UNICOMER_YELLOW = "#fdbb2d"
 UNICOMER_LOGO_URL = "https://grupounicomer.com/wp-content/uploads/2022/12/logo-sol-gris.png"
 
-# CSS: Estilos corporativos
+# CSS: Logo blanco, fondo azul y estilo de botones
 st.markdown(f"""
 <style>
     [data-testid="stSidebar"] {{ background-color: {UNICOMER_BLUE} !important; }}
@@ -46,14 +46,14 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNCIONES DB REPARADAS ---
+# --- FUNCIONES DE BASE DE DATOS ---
 def exec_sql(sql, params=()):
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cur = conn.cursor()
             cur.execute(sql, params)
             conn.commit()
-            return True, "✅"
+            return True, "✅ Operación exitosa"
     except Exception as e:
         return False, str(e)
 
@@ -61,32 +61,28 @@ def df_query(sql, params=()):
     try:
         with sqlite3.connect(DB_PATH) as conn:
             return pd.read_sql_query(sql, conn, params=params)
-    except Exception as e:
-        # Si falla por columna faltante, devolvemos un DF vacío para evitar el crash
+    except:
         return pd.DataFrame()
 
-# --- MIGRACIÓN Y PROVISIÓN (Repara el error de la imagen) ---
+# --- MIGRACIÓN Y PERSISTENCIA (PROTECCIÓN CONTRA BORRADO) ---
 def provision_db():
-    # Crear tablas base
     exec_sql("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, role TEXT, salt TEXT, pwd_hash TEXT, created_at TEXT)")
     exec_sql("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT UNIQUE, prefix TEXT)")
     exec_sql("CREATE TABLE IF NOT EXISTS types (id INTEGER PRIMARY KEY, name TEXT UNIQUE, code TEXT)")
     exec_sql("CREATE TABLE IF NOT EXISTS type_orders (id INTEGER PRIMARY KEY, type_id INTEGER, order_no INTEGER)")
     exec_sql("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, created_at TEXT, country TEXT, hid_value TEXT, final_url TEXT, username TEXT)")
     
-    # REPARACIÓN CRÍTICA: Asegurar que la columna 'username' existe en history
+    # Asegurar columna username en historial (Migración)
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(history)")
-            columns = [column[1] for column in cursor.fetchall()]
-            if 'username' not in columns:
-                cursor.execute("ALTER TABLE history ADD COLUMN username TEXT")
+            c = conn.cursor()
+            c.execute("PRAGMA table_info(history)")
+            if 'username' not in [col[1] for col in c.fetchall()]:
+                c.execute("ALTER TABLE history ADD COLUMN username TEXT")
                 conn.commit()
-    except:
-        pass
+    except: pass
 
-    # Usuarios maestros (Persistencia garantizada)
+    # Listado Maestro de Usuarios según tu imagen
     master_users = [
         ("ula_cr_unicomer", "CrTrackQSjs", "user"),
         ("ula_sv_unicomer", "SVTrackQScs", "user"),
@@ -100,10 +96,8 @@ def provision_db():
         ("luis_pena", "admin123", "admin")
     ]
     for uname, pword, urole in master_users:
-        check = df_query("SELECT id FROM users WHERE username=?", (uname,))
-        if check.empty:
-            s = secrets.token_hex(16)
-            h = hashlib.sha256((s + pword).encode("utf-8")).hexdigest()
+        if df_query("SELECT id FROM users WHERE username=?", (uname,)).empty:
+            s = secrets.token_hex(16); h = hashlib.sha256((s+pword).encode()).hexdigest()
             exec_sql("INSERT INTO users(username, role, salt, pwd_hash, created_at) VALUES (?,?,?,?,?)",
                      (uname, urole, s, h, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
@@ -129,11 +123,11 @@ if not st.session_state.auth["is_logged"]:
     st.stop()
 
 # =========================
-# 3. INTERFAZ
+# 3. INTERFAZ PRINCIPAL
 # =========================
 with st.sidebar:
     st.markdown(f'<img src="{UNICOMER_LOGO_URL}" class="white-logo">', unsafe_allow_html=True)
-    st.write(f"👤 **{st.session_state.auth['username']}**")
+    st.write(f"👤 **{st.session_state.auth['username']}** ({st.session_state.auth['role']})")
     if st.button("Cerrar Sesión"):
         st.session_state.auth = {"is_logged": False}
         st.rerun()
@@ -146,57 +140,92 @@ with tabs[0]:
     url_base = st.text_input("URL base", placeholder="https://...")
     c1, c2, c3 = st.columns(3)
     pais = c1.selectbox("País", ["SV", "GT", "CR", "HN", "NI", "PA", "DO", "JM", "TT"])
-    
     cats_df = df_query("SELECT id, name, prefix FROM categories")
-    cat_sel = c2.selectbox("Categoría", [f"{r.name} ({r.prefix})" for r in cats_df.itertuples()] if not cats_df.empty else ["Sin categorías"])
-    
+    cat_sel = c2.selectbox("Categoría", [f"{r.name} ({r.prefix})" for r in cats_df.itertuples()] if not cats_df.empty else ["N/A"])
     typs_df = df_query("SELECT id, name, code FROM types")
-    type_sel = c3.selectbox("Tipo", [f"{r.name} ({r.code})" for r in typs_df.itertuples()] if not typs_df.empty else ["Sin tipos"])
+    type_sel = c3.selectbox("Tipo", [f"{r.name} ({r.code})" for r in typs_df.itertuples()] if not typs_df.empty else ["N/A"])
     
     if "(" in type_sel and "(" in cat_sel:
         t_code = type_sel.split("(")[1].replace(")", "")
-        t_row = typs_df[typs_df['code'] == t_code]
-        if not t_row.empty:
-            t_id = t_row['id'].values[0]
-            pos_df = df_query("SELECT order_no FROM type_orders WHERE type_id=? ORDER BY order_no", (int(t_id),))
-            pos = st.selectbox("Posición (Orden)", pos_df['order_no'].tolist() if not pos_df.empty else [1])
-            
-            if st.button("GENERAR ID Y LINK"):
-                if url_base.strip():
-                    pref = cat_sel.split("(")[1].replace(")", "")
-                    hid = f"{pref}_{t_code}_{pos}"
-                    p_url = urlparse(url_base.strip())
-                    qs = dict(parse_qsl(p_url.query)); qs['hid'] = hid
-                    f_url = urlunparse(p_url._replace(query=urlencode(qs)))
-                    exec_sql("INSERT INTO history (created_at, country, hid_value, final_url, username) VALUES (?,?,?,?,?)",
-                            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pais, hid, f_url, st.session_state.auth["username"]))
-                    st.success(f"ID Generado: {hid}"); st.code(f_url); time.sleep(2)
+        t_id = typs_df[typs_df['code'] == t_code]['id'].values[0]
+        pos_df = df_query("SELECT order_no FROM type_orders WHERE type_id=? ORDER BY order_no", (int(t_id),))
+        pos = st.selectbox("Posición (Orden)", pos_df['order_no'].tolist() if not pos_df.empty else [1])
+        
+        if st.button("GENERAR ID Y LINK"):
+            if url_base.strip():
+                pref = cat_sel.split("(")[1].replace(")", "")
+                hid = f"{pref}_{t_code}_{pos}"
+                p_url = urlparse(url_base.strip()); qs = dict(parse_qsl(p_url.query))
+                qs['hid'] = hid; f_url = urlunparse(p_url._replace(query=urlencode(qs)))
+                exec_sql("INSERT INTO history (created_at, country, hid_value, final_url, username) VALUES (?,?,?,?,?)",
+                        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pais, hid, f_url, st.session_state.auth["username"]))
+                st.success(f"ID: {hid}"); st.code(f_url); time.sleep(2)
 
-# --- TAB 2: HISTORIAL (Reparado) ---
+# --- TAB 2: HISTORIAL ---
 with tabs[1]:
     st.subheader("🕒 Registros Generados")
-    # Consulta segura que maneja el error de columna 'username'
-    try:
-        if st.session_state.auth["role"] == "admin":
-            h_df = df_query("SELECT created_at as Fecha, username as Usuario, country as Pais, hid_value as ID, final_url as URL FROM history ORDER BY id DESC")
-        else:
-            h_df = df_query("SELECT created_at as Fecha, country as Pais, hid_value as ID, final_url as URL FROM history WHERE username=? ORDER BY id DESC", 
-                            (st.session_state.auth["username"],))
-        
-        if not h_df.empty:
-            st.dataframe(h_df, use_container_width=True)
-        else:
-            st.info("No hay registros en el historial.")
-    except:
-        st.error("Error al cargar el historial. Por favor, reinicia la app.")
+    if st.session_state.auth["role"] == "admin":
+        h_df = df_query("SELECT created_at as Fecha, username as Usuario, country as Pais, hid_value as ID, final_url as URL FROM history ORDER BY id DESC")
+    else:
+        h_df = df_query("SELECT created_at as Fecha, country as Pais, hid_value as ID, final_url as URL FROM history WHERE username=? ORDER BY id DESC", (st.session_state.auth["username"],))
+    st.dataframe(h_df, use_container_width=True)
 
-# --- TAB 3: ADMINISTRACIÓN (Permisos y Edición) ---
+# --- TAB 3: ADMINISTRACIÓN ---
 with tabs[2]:
-    st.title("⚙️ Administración")
+    st.title("⚙️ Administración del Sistema")
     
-    # VISIBLE PARA TODOS: Tabla Informativa
-    st.subheader("📊 Tipos y Posiciones Registradas")
+    # SECCIÓN PÚBLICA (Admin y User)
+    st.subheader("📊 Resumen de Tipos y Componentes")
     resumen = df_query("""SELECT t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
-                          FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
+                         FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
     if not resumen.empty:
-        st.dataframe(resumen, use_container_width=
+        st.dataframe(resumen, use_container_width=True)
+    else:
+        st.info("No hay tipos configurados.")
+
+    # SECCIÓN PRIVADA (Solo Admin)
+    if st.session_state.auth["role"] == "admin":
+        st.divider()
+        st.subheader("🛠️ Herramientas de Gestión")
+        col_adm1, col_adm2 = st.columns(2)
+        
+        with col_adm1:
+            with st.expander("📁 Categorías"):
+                cn = st.text_input("Nombre"); cp = st.text_input("Prefijo")
+                if st.button("Guardar Categoría"):
+                    exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
+                    st.success("Guardado"); time.sleep(2); st.rerun()
+            
+            with st.expander("📝 Modificar Tipo Existente"):
+                if not typs_df.empty:
+                    t_mod = st.selectbox("Seleccionar para editar", typs_df['name'].tolist())
+                    t_info = typs_df[typs_df['name'] == t_mod].iloc[0]
+                    cur_p = df_query("SELECT COUNT(*) as c FROM type_orders WHERE type_id=?", (int(t_info['id']),)).iloc[0]['c']
+                    new_n = st.text_input("Nuevo Nombre", value=t_info['name'])
+                    new_c = st.text_input("Nuevo Código", value=t_info['code'])
+                    new_p = st.number_input("Ajustar Posiciones", 1, 100, int(cur_p))
+                    if st.button("Actualizar Tipo"):
+                        exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (new_n, new_c, int(t_info['id'])))
+                        if new_p > cur_p:
+                            for i in range(int(cur_p)+1, int(new_p)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (int(t_info['id']), i))
+                        elif new_p < cur_p:
+                            exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (int(t_info['id']), int(new_p)))
+                        st.success("Actualización aplicada"); time.sleep(2); st.rerun()
+
+        with col_adm2:
+            with st.expander("➕ Añadir Nuevo Tipo"):
+                atn = st.text_input("Nombre Componente"); atc = st.text_input("Código"); atp = st.number_input("Posiciones", 1, 100, 5)
+                if st.button("Crear Nuevo"):
+                    ok, _ = exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (atn, atc))
+                    if ok:
+                        tid = df_query("SELECT id FROM types WHERE code=?", (atc,)).iloc[0]['id']
+                        for i in range(1, int(atp)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
+                        st.success("Creado correctamente"); time.sleep(2); st.rerun()
+
+        st.divider()
+        st.subheader("👤 Usuarios y Seguridad")
+        udf = df_query("SELECT username, role FROM users")
+        st.dataframe(udf, use_container_width=True)
+        with st.expander("🔑 Gestionar Passwords / Usuarios"):
+            target = st.selectbox("Usuario", udf['username'].tolist() if not udf.empty else [])
+            new
