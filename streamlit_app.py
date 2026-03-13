@@ -24,7 +24,7 @@ UNICOMER_BLUE = "#002d5a"
 UNICOMER_YELLOW = "#fdbb2d"
 UNICOMER_LOGO_URL = "https://grupounicomer.com/wp-content/uploads/2022/12/logo-sol-gris.png"
 
-# CSS: Logo blanco, fondo azul y estilo de botones
+# CSS: Estilos corporativos y logo blanco
 st.markdown(f"""
 <style>
     [data-testid="stSidebar"] {{ background-color: {UNICOMER_BLUE} !important; }}
@@ -46,14 +46,14 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNCIONES DE BASE DE DATOS ---
+# --- FUNCIONES DE BASE DE DATOS ROBUSTAS ---
 def exec_sql(sql, params=()):
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cur = conn.cursor()
             cur.execute(sql, params)
             conn.commit()
-            return True, "✅ Operación exitosa"
+            return True, "✅ Hecho"
     except Exception as e:
         return False, str(e)
 
@@ -64,25 +64,27 @@ def df_query(sql, params=()):
     except:
         return pd.DataFrame()
 
-# --- MIGRACIÓN Y PERSISTENCIA (PROTECCIÓN CONTRA BORRADO) ---
+# --- MIGRACIÓN Y LIMPIEZA ---
 def provision_db():
+    # Creación de tablas base
     exec_sql("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, role TEXT, salt TEXT, pwd_hash TEXT, created_at TEXT)")
     exec_sql("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT UNIQUE, prefix TEXT)")
     exec_sql("CREATE TABLE IF NOT EXISTS types (id INTEGER PRIMARY KEY, name TEXT UNIQUE, code TEXT)")
     exec_sql("CREATE TABLE IF NOT EXISTS type_orders (id INTEGER PRIMARY KEY, type_id INTEGER, order_no INTEGER)")
     exec_sql("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, created_at TEXT, country TEXT, hid_value TEXT, final_url TEXT, username TEXT)")
     
-    # Asegurar columna username en historial (Migración)
+    # REPARACIÓN: Agregar columna username si falta (Corrige DatabaseError)
     try:
         with sqlite3.connect(DB_PATH) as conn:
             c = conn.cursor()
             c.execute("PRAGMA table_info(history)")
-            if 'username' not in [col[1] for col in c.fetchall()]:
+            cols = [col[1] for col in c.fetchall()]
+            if 'username' not in cols:
                 c.execute("ALTER TABLE history ADD COLUMN username TEXT")
                 conn.commit()
     except: pass
 
-    # Listado Maestro de Usuarios según tu imagen
+    # Inserción de usuarios maestros
     master_users = [
         ("ula_cr_unicomer", "CrTrackQSjs", "user"),
         ("ula_sv_unicomer", "SVTrackQScs", "user"),
@@ -112,22 +114,22 @@ if not st.session_state.auth["is_logged"]:
         st.image(UNICOMER_LOGO_URL, width=200)
         u_in = st.text_input("Usuario")
         p_in = st.text_input("Contraseña", type="password")
-        if st.button("ENTRAR"):
+        if st.button("ACCEDER"):
             res = df_query("SELECT username, role, salt, pwd_hash FROM users WHERE username=?", (u_in,))
             if not res.empty:
                 input_hash = hashlib.sha256((res.iloc[0]['salt'] + p_in).encode("utf-8")).hexdigest()
                 if input_hash == res.iloc[0]['pwd_hash']:
                     st.session_state.auth = {"is_logged": True, "username": res.iloc[0]['username'], "role": res.iloc[0]['role']}
                     st.rerun()
-            st.error("Credenciales incorrectas")
+            st.error("Acceso denegado.")
     st.stop()
 
 # =========================
-# 3. INTERFAZ PRINCIPAL
+# 3. INTERFAZ
 # =========================
 with st.sidebar:
     st.markdown(f'<img src="{UNICOMER_LOGO_URL}" class="white-logo">', unsafe_allow_html=True)
-    st.write(f"👤 **{st.session_state.auth['username']}** ({st.session_state.auth['role']})")
+    st.write(f"Conectado como: **{st.session_state.auth['username']}**")
     if st.button("Cerrar Sesión"):
         st.session_state.auth = {"is_logged": False}
         st.rerun()
@@ -136,96 +138,96 @@ tabs = st.tabs(["✅ Generador", "🕒 Historial", "⚙️ Administración"])
 
 # --- TAB 1: GENERADOR ---
 with tabs[0]:
-    st.markdown('<div class="figma-box"><h4>🎨 Figma Oficial</h4><a href="https://www.figma.com/design/ihSTaMfAmyN99BN5Z6sNps/Home-ULA?node-id=0-1" target="_blank" class="figma-button">IR A FIGMA</a></div>', unsafe_allow_html=True)
-    url_base = st.text_input("URL base", placeholder="https://...")
+    st.markdown('<div class="figma-box"><h4>🎨 Guía de Posiciones</h4><p>Valida los códigos en el Figma oficial antes de generar.</p><a href="https://www.figma.com/design/ihSTaMfAmyN99BN5Z6sNps/Home-ULA?node-id=0-1" target="_blank" class="figma-button">IR A FIGMA</a></div>', unsafe_allow_html=True)
+    url_base = st.text_input("URL base", placeholder="https://www.lacuracaonline.com/...")
     c1, c2, c3 = st.columns(3)
-    pais = c1.selectbox("País", ["SV", "GT", "CR", "HN", "NI", "PA", "DO", "JM", "TT"])
+    p_sel = c1.selectbox("País", ["SV", "GT", "CR", "HN", "NI", "PA", "EC", "DO"])
+    
     cats_df = df_query("SELECT id, name, prefix FROM categories")
-    cat_sel = c2.selectbox("Categoría", [f"{r.name} ({r.prefix})" for r in cats_df.itertuples()] if not cats_df.empty else ["N/A"])
+    cat_sel = c2.selectbox("Categoría", [f"{r.name} ({r.prefix})" for r in cats_df.itertuples()] if not cats_df.empty else ["Sin categorías"])
+    
     typs_df = df_query("SELECT id, name, code FROM types")
-    type_sel = c3.selectbox("Tipo", [f"{r.name} ({r.code})" for r in typs_df.itertuples()] if not typs_df.empty else ["N/A"])
+    type_sel = c3.selectbox("Tipo", [f"{r.name} ({r.code})" for r in typs_df.itertuples()] if not typs_df.empty else ["Sin tipos"])
     
     if "(" in type_sel and "(" in cat_sel:
         t_code = type_sel.split("(")[1].replace(")", "")
         t_id = typs_df[typs_df['code'] == t_code]['id'].values[0]
         pos_df = df_query("SELECT order_no FROM type_orders WHERE type_id=? ORDER BY order_no", (int(t_id),))
-        pos = st.selectbox("Posición (Orden)", pos_df['order_no'].tolist() if not pos_df.empty else [1])
+        p_val = st.selectbox("Posición", pos_df['order_no'].tolist() if not pos_df.empty else [1])
         
         if st.button("GENERAR ID Y LINK"):
             if url_base.strip():
-                pref = cat_sel.split("(")[1].replace(")", "")
-                hid = f"{pref}_{t_code}_{pos}"
-                p_url = urlparse(url_base.strip()); qs = dict(parse_qsl(p_url.query))
-                qs['hid'] = hid; f_url = urlunparse(p_url._replace(query=urlencode(qs)))
+                c_pref = cat_sel.split("(")[1].replace(")", "")
+                hid_gen = f"{c_pref}_{t_code}_{p_val}"
+                parsed = urlparse(url_base.strip()); query = dict(parse_qsl(parsed.query))
+                query['hid'] = hid_gen
+                f_link = urlunparse(parsed._replace(query=urlencode(query)))
+                
                 exec_sql("INSERT INTO history (created_at, country, hid_value, final_url, username) VALUES (?,?,?,?,?)",
-                        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), pais, hid, f_url, st.session_state.auth["username"]))
-                st.success(f"ID: {hid}"); st.code(f_url); time.sleep(2)
+                        (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), p_sel, hid_gen, f_link, st.session_state.auth["username"]))
+                st.success(f"Generado: {hid_gen}"); st.code(f_link); time.sleep(2)
 
 # --- TAB 2: HISTORIAL ---
 with tabs[1]:
     st.subheader("🕒 Registros Generados")
     if st.session_state.auth["role"] == "admin":
-        h_df = df_query("SELECT created_at as Fecha, username as Usuario, country as Pais, hid_value as ID, final_url as URL FROM history ORDER BY id DESC")
+        h_data = df_query("SELECT created_at as Fecha, username as Usuario, country as Pais, hid_value as ID, final_url as URL FROM history ORDER BY id DESC")
     else:
-        h_df = df_query("SELECT created_at as Fecha, country as Pais, hid_value as ID, final_url as URL FROM history WHERE username=? ORDER BY id DESC", (st.session_state.auth["username"],))
-    st.dataframe(h_df, use_container_width=True)
+        h_data = df_query("SELECT created_at as Fecha, country as Pais, hid_value as ID, final_url as URL FROM history WHERE username=? ORDER BY id DESC", (st.session_state.auth["username"],))
+    st.dataframe(h_data, use_container_width=True)
 
-# --- TAB 3: ADMINISTRACIÓN ---
+# --- TAB 3: ADMINISTRACIÓN (Reparado) ---
 with tabs[2]:
-    st.title("⚙️ Administración del Sistema")
-    
-    # SECCIÓN PÚBLICA (Admin y User)
-    st.subheader("📊 Resumen de Tipos y Componentes")
-    resumen = df_query("""SELECT t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
-                         FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
-    if not resumen.empty:
-        st.dataframe(resumen, use_container_width=True)
-    else:
-        st.info("No hay tipos configurados.")
+    st.title("⚙️ Configuración")
+    st.subheader("📊 Tipos Registrados")
+    resumen_df = df_query("""SELECT t.name as Nombre, t.code as Código, COUNT(o.id) as Posiciones 
+                            FROM types t LEFT JOIN type_orders o ON t.id = o.type_id GROUP BY t.id""")
+    if not resumen_df.empty:
+        st.dataframe(resumen_df, use_container_width=True)
 
-    # SECCIÓN PRIVADA (Solo Admin)
     if st.session_state.auth["role"] == "admin":
         st.divider()
-        st.subheader("🛠️ Herramientas de Gestión")
-        col_adm1, col_adm2 = st.columns(2)
+        col_m1, col_m2 = st.columns(2)
         
-        with col_adm1:
+        with col_m1:
             with st.expander("📁 Categorías"):
-                cn = st.text_input("Nombre"); cp = st.text_input("Prefijo")
-                if st.button("Guardar Categoría"):
-                    exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (cn, cp))
+                c_name = st.text_input("Nombre Categoría")
+                c_pref = st.text_input("Prefijo")
+                if st.button("Crear"):
+                    exec_sql("INSERT INTO categories(name, prefix) VALUES (?,?)", (c_name, c_pref))
                     st.success("Guardado"); time.sleep(2); st.rerun()
             
-            with st.expander("📝 Modificar Tipo Existente"):
+            with st.expander("📝 Editar Tipo"):
                 if not typs_df.empty:
-                    t_mod = st.selectbox("Seleccionar para editar", typs_df['name'].tolist())
-                    t_info = typs_df[typs_df['name'] == t_mod].iloc[0]
-                    cur_p = df_query("SELECT COUNT(*) as c FROM type_orders WHERE type_id=?", (int(t_info['id']),)).iloc[0]['c']
-                    new_n = st.text_input("Nuevo Nombre", value=t_info['name'])
-                    new_c = st.text_input("Nuevo Código", value=t_info['code'])
-                    new_p = st.number_input("Ajustar Posiciones", 1, 100, int(cur_p))
-                    if st.button("Actualizar Tipo"):
-                        exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (new_n, new_c, int(t_info['id'])))
-                        if new_p > cur_p:
-                            for i in range(int(cur_p)+1, int(new_p)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (int(t_info['id']), i))
-                        elif new_p < cur_p:
-                            exec_sql("DELETE FROM type_orders WHERE type_id=? AND order_no > ?", (int(t_info['id']), int(new_p)))
-                        st.success("Actualización aplicada"); time.sleep(2); st.rerun()
+                    t_sel_edit = st.selectbox("Seleccionar para modificar", typs_df['name'].tolist())
+                    t_row = typs_df[typs_df['name'] == t_sel_edit].iloc[0]
+                    # Variables con nombres únicos para evitar NameError
+                    upd_name = st.text_input("Nuevo Nombre", value=t_row['name'])
+                    upd_code = st.text_input("Nuevo Código", value=t_row['code'])
+                    if st.button("Actualizar"):
+                        exec_sql("UPDATE types SET name=?, code=? WHERE id=?", (upd_name, upd_code, int(t_row['id'])))
+                        st.success("Hecho"); time.sleep(2); st.rerun()
 
-        with col_adm2:
-            with st.expander("➕ Añadir Nuevo Tipo"):
-                atn = st.text_input("Nombre Componente"); atc = st.text_input("Código"); atp = st.number_input("Posiciones", 1, 100, 5)
-                if st.button("Crear Nuevo"):
-                    ok, _ = exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (atn, atc))
+        with col_m2:
+            with st.expander("➕ Nuevo Tipo"):
+                n_t_name = st.text_input("Nombre Componente")
+                n_t_code = st.text_input("Código Corto")
+                n_t_pos = st.number_input("Cantidad Posiciones", 1, 100, 5)
+                if st.button("Registrar"):
+                    ok, _ = exec_sql("INSERT INTO types(name, code) VALUES (?,?)", (n_t_name, n_t_code))
                     if ok:
-                        tid = df_query("SELECT id FROM types WHERE code=?", (atc,)).iloc[0]['id']
-                        for i in range(1, int(atp)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
-                        st.success("Creado correctamente"); time.sleep(2); st.rerun()
+                        tid = df_query("SELECT id FROM types WHERE code=?", (n_t_code,)).iloc[0]['id']
+                        for i in range(1, int(n_t_pos)+1): exec_sql("INSERT INTO type_orders(type_id, order_no) VALUES (?,?)", (tid, i))
+                        st.success("Creado"); time.sleep(2); st.rerun()
 
         st.divider()
-        st.subheader("👤 Usuarios y Seguridad")
-        udf = df_query("SELECT username, role FROM users")
-        st.dataframe(udf, use_container_width=True)
-        with st.expander("🔑 Gestionar Passwords / Usuarios"):
-            target = st.selectbox("Usuario", udf['username'].tolist() if not udf.empty else [])
-            new
+        st.subheader("👤 Gestión de Usuarios")
+        u_table = df_query("SELECT username, role FROM users")
+        st.dataframe(u_table, use_container_width=True)
+        with st.expander("🔑 Reset Password"):
+            target_u = st.selectbox("Usuario", u_table['username'].tolist() if not u_table.empty else [])
+            new_p_val = st.text_input("Nueva Clave", type="password") # Cambiado de 'new' a 'new_p_val'
+            if st.button("Cambiar Clave"):
+                s_val = secrets.token_hex(16); h_val = hashlib.sha256((s_val+new_p_val).encode()).hexdigest()
+                exec_sql("UPDATE users SET salt=?, pwd_hash=? WHERE username=?", (s_val, h_val, target_u))
+                st.success("Password actualizado"); time.sleep(2); st.rerun()
